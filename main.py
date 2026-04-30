@@ -16,6 +16,7 @@ from finance_core.services.manual_snapshots import (
     set_wallet_total,
 )
 from finance_core.services.now import show_now, show_wallet
+from finance_core.services.transfers import transfer
 from finance_core.services.snapshots import format_snapshot
 
 
@@ -71,6 +72,18 @@ def handle_command(conn: sqlite3.Connection, command_line: str) -> str:
 
     if command == "/cash":
         return show_wallet(conn)
+
+    if command == "/transfer":
+        if len(parts) < 4:
+            raise ValueError("使い方: /transfer <from> <to> <amount> [memo]")
+        from_key = parts[1]
+        to_key = parts[2]
+        amount = parse_amount(parts[3])
+        memo = " ".join(parts[4:]) if len(parts) > 4 else None
+        result = transfer(conn, from_key, to_key, amount, memo)
+        memo_str = f" ({memo})" if memo else ""
+        msg = f"{from_key}から{to_key}へ {amount:,}円を振替しました{memo_str}\n総資産は変わりません\n"
+        return msg + format_snapshot(result["snapshot"])
 
     if command == "/ask":
         if len(parts) < 2:
