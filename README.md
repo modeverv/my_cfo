@@ -36,6 +36,14 @@ make mcp       # MCP stdio サーバー
 
 ---
 
+## 画面サンプル
+
+`--tui` モードでサンプルデータを表示した例。
+
+![TUI sample](docs/tui-sample.svg)
+
+---
+
 ## コマンド一覧
 
 ### 資産スナップショット
