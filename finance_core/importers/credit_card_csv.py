@@ -226,6 +226,22 @@ def parse_csv(path: Path) -> list[dict[str, Any]]:
     return _parse_rows(rows, path, fmt)
 
 
+def _transaction_exists(conn: sqlite3.Connection, rec: dict[str, Any]) -> bool:
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM card_transactions
+        WHERE used_on = ?
+          AND merchant = ?
+          AND amount = ?
+          AND payment_month IS ?
+        LIMIT 1
+        """,
+        (rec["used_on"], rec["merchant"], rec["amount"], rec["payment_month"]),
+    ).fetchone()
+    return row is not None
+
+
 def import_directory(
     conn: sqlite3.Connection, directory: Path | None = None
 ) -> dict[str, Any]:
@@ -244,9 +260,7 @@ def import_directory(
         try:
             result = import_csv(conn, csv_path)
             total_imported += result["imported"]
-        except ValueError:
-            # 重複ファイルはスキップ
-            skipped += 1
+            skipped += result["skipped"]
         except Exception as exc:
             errors.append(f"{csv_path.name}: {exc}")
 
@@ -259,7 +273,7 @@ def import_directory(
 
 
 def import_csv(conn: sqlite3.Connection, path: Path) -> dict[str, int]:
-    """CSVを取り込み、件数を返す。二重取り込みは file_hash で防ぐ"""
+    """CSVを取り込み、件数を返す。明細の完全一致は行単位でスキップ"""
     path = Path(path)
     fhash = _file_hash(path)
 
@@ -267,7 +281,22 @@ def import_csv(conn: sqlite3.Connection, path: Path) -> dict[str, int]:
         "SELECT id, status FROM imports WHERE file_hash = ?", (fhash,)
     ).fetchone()
     if existing:
-        raise ValueError(f"このファイルはすでに取り込み済みです (imports.id={existing['id']})")
+        records = parse_csv(path)
+        imported = 0
+        skipped = 0
+        for rec in records:
+            if _transaction_exists(conn, rec):
+                skipped += 1
+                continue
+            conn.execute(
+                """
+                INSERT INTO card_transactions (used_on, merchant, amount, payment_month)
+                VALUES (?, ?, ?, ?)
+                """,
+                (rec["used_on"], rec["merchant"], rec["amount"], rec["payment_month"]),
+            )
+            imported += 1
+        return {"imported": imported, "skipped": skipped, "import_id": existing["id"]}
 
     import_id = conn.execute(
         """
@@ -279,7 +308,12 @@ def import_csv(conn: sqlite3.Connection, path: Path) -> dict[str, int]:
 
     try:
         records = parse_csv(path)
+        imported = 0
+        skipped = 0
         for rec in records:
+            if _transaction_exists(conn, rec):
+                skipped += 1
+                continue
             conn.execute(
                 """
                 INSERT INTO card_transactions (used_on, merchant, amount, payment_month)
@@ -287,6 +321,7 @@ def import_csv(conn: sqlite3.Connection, path: Path) -> dict[str, int]:
                 """,
                 (rec["used_on"], rec["merchant"], rec["amount"], rec["payment_month"]),
             )
+            imported += 1
         conn.execute(
             """
             UPDATE imports
@@ -302,4 +337,4 @@ def import_csv(conn: sqlite3.Connection, path: Path) -> dict[str, int]:
         )
         raise
 
-    return {"imported": len(records), "import_id": import_id}
+    return {"imported": imported, "skipped": skipped, "import_id": import_id}
