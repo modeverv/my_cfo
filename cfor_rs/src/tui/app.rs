@@ -25,9 +25,10 @@ use crate::services::ask_context::{
 };
 use crate::services::snapshots::get_latest_snapshot;
 
-const GREEN: Color = Color::Rgb(0, 255, 0);
-const DIM_GREEN: Color = Color::Rgb(0, 180, 0);
-const BLACK: Color = Color::Black;
+const GREEN: Color = Color::Rgb(0, 255, 102);      // #00ff66 bright highlight
+const DIM_GREEN: Color = Color::Rgb(0, 176, 48);   // #00b030 side pane
+const MAIN_COLOR: Color = Color::Rgb(0, 224, 64);  // #00e040 main text
+const BG_DARK: Color = Color::Rgb(5, 15, 5);       // #050f05 dark background
 
 enum AppMsg {
     LlmResponse(String),
@@ -226,7 +227,7 @@ impl App {
         // Status header
         let status_text = format!("{}\n{}", self.status_line1, self.status_line2);
         let status = Paragraph::new(status_text)
-            .style(Style::default().fg(GREEN).bg(BLACK))
+            .style(Style::default().fg(GREEN).bg(BG_DARK))
             .block(
                 Block::default()
                     .borders(Borders::BOTTOM)
@@ -246,7 +247,7 @@ impl App {
         // Input bar
         let input_text = format!("fin> {}", self.input);
         let input = Paragraph::new(input_text)
-            .style(Style::default().fg(GREEN).bg(BLACK))
+            .style(Style::default().fg(GREEN).bg(BG_DARK))
             .block(
                 Block::default()
                     .borders(Borders::TOP)
@@ -269,7 +270,7 @@ impl App {
         };
         let visible: Vec<ListItem> = self.output_lines[start..]
             .iter()
-            .map(|l| ListItem::new(l.as_str()).style(Style::default().fg(GREEN).bg(BLACK)))
+            .map(|l| ListItem::new(l.as_str()).style(Style::default().fg(MAIN_COLOR).bg(BG_DARK)))
             .collect();
 
         let list = List::new(visible)
@@ -282,7 +283,7 @@ impl App {
                         Style::default().fg(GREEN),
                     )),
             )
-            .style(Style::default().fg(GREEN).bg(BLACK));
+            .style(Style::default().fg(MAIN_COLOR).bg(BG_DARK));
         f.render_widget(list, area);
     }
 
@@ -299,7 +300,7 @@ impl App {
         fn make_list<'a>(lines: &'a [String], title: &'a str) -> List<'a> {
             let items: Vec<ListItem> = lines
                 .iter()
-                .map(|l| ListItem::new(l.as_str()).style(Style::default().fg(DIM_GREEN).bg(BLACK)))
+                .map(|l| ListItem::new(l.as_str()).style(Style::default().fg(DIM_GREEN).bg(BG_DARK)))
                 .collect();
             List::new(items)
                 .block(
@@ -308,7 +309,7 @@ impl App {
                         .border_style(Style::default().fg(DIM_GREEN))
                         .title(Span::styled(title, Style::default().fg(GREEN))),
                 )
-                .style(Style::default().fg(DIM_GREEN).bg(BLACK))
+                .style(Style::default().fg(DIM_GREEN).bg(BG_DARK))
         }
 
         f.render_widget(make_list(&self.side.card_lines, " カード "), side_chunks[0]);
