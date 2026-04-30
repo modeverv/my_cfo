@@ -195,6 +195,9 @@ class FinanceApp(App):
 
     def _execute(self, command_line: str) -> None:
         main_log = self.query_one(self._MAIN_PANE, RichLog)
+        if command_line == "/help":
+            main_log.write(self._help_text())
+            return
         try:
             with connect(self.db_path) as conn:
                 output = handle_command(conn, command_line)
@@ -236,8 +239,8 @@ class FinanceApp(App):
 
     # ── キーバインド ─────────────────────────────────────
 
-    def action_show_help(self) -> None:
-        help_text = (
+    def _help_text(self) -> str:
+        return (
             "[bold]── コマンド一覧 ──[/bold]\n"
             "  /now                      現在の資産状況\n"
             "  /set-bank <amount>        銀行残高を更新\n"
@@ -250,8 +253,11 @@ class FinanceApp(App):
             "  /import [dir]             CSVを一括取り込み（重複スキップ）\n"
             "  /card [this_month|YYYY-MM] カード利用集計\n"
             "  /ask <質問>               LLMに分析を依頼\n"
+            "  /help                     このヘルプを表示\n"
         )
-        self.query_one(self._MAIN_PANE, RichLog).write(help_text)
+
+    def action_show_help(self) -> None:
+        self.query_one(self._MAIN_PANE, RichLog).write(self._help_text())
 
     def action_cmd_now(self) -> None:
         self.query_one(self._CMD_INPUT, Input).clear()
