@@ -22,6 +22,39 @@ pub fn card_billing_month() -> String {
     }
 }
 
+pub fn latest_card_payment_month(conn: &Connection) -> Result<Option<String>> {
+    let month = conn.query_row(
+        &format!(
+            "SELECT MAX({})
+             FROM card_transactions
+             WHERE {} IS NOT NULL",
+            CARD_PAYMENT_MONTH_EXPR, CARD_PAYMENT_MONTH_EXPR
+        ),
+        [],
+        |row| row.get::<_, Option<String>>(0),
+    )?;
+    Ok(month)
+}
+
+pub fn active_card_month(conn: &Connection) -> Result<String> {
+    let billing_month = card_billing_month();
+    let count: i64 = conn.query_row(
+        &format!(
+            "SELECT COUNT(*)
+             FROM card_transactions
+             WHERE {} = ?1",
+            CARD_PAYMENT_MONTH_EXPR
+        ),
+        rusqlite::params![billing_month],
+        |row| row.get(0),
+    )?;
+    if count > 0 {
+        return Ok(billing_month);
+    }
+
+    Ok(latest_card_payment_month(conn)?.unwrap_or(billing_month))
+}
+
 use chrono::Datelike;
 
 pub fn get_card_month_summary(conn: &Connection, month: &str) -> Result<CardMonthSummary> {
@@ -165,7 +198,7 @@ pub fn refresh_card_unbilled(conn: &Connection, month: &str) -> Result<Snapshot>
 pub fn build_finance_context(conn: &Connection, question: &str) -> Result<String> {
     let latest = get_latest_snapshot(conn)?;
     let usage_month = current_month();
-    let billing_month = card_billing_month();
+    let billing_month = active_card_month(conn)?;
     let prev_billing = usage_month.clone();
 
     let wallet_summary = get_wallet_month_summary(conn, &usage_month)?;

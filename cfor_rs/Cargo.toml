@@ -11,6 +11,10 @@ path = "src/main.rs"
 name = "cfor-mcp"
 path = "src/bin/mcp.rs"
 
+[[bin]]
+name = "cfor-tui"
+path = "src/bin/tui.rs"
+
 [dependencies]
 rusqlite = { version = "0.31", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }

@@ -1,7 +1,7 @@
 use crate::db::{connect, init_db};
 use crate::importers::credit_card_csv::{import_csv, import_directory};
 use crate::services::ask_context::{
-    build_finance_context, card_billing_month, current_month, get_card_month_summary,
+    active_card_month, build_finance_context, current_month, get_card_month_summary,
     get_recent_transfers, get_wallet_month_summary, refresh_card_unbilled,
 };
 use crate::services::manual_snapshots::{cash_add, cash_out, set_bank_total, set_securities_total};
@@ -97,6 +97,18 @@ fn resolve_month(args: &Value, default_fn: fn() -> String) -> Result<String, Str
     let raw = args["month"].as_str().unwrap_or("this_month");
     if raw == "this_month" {
         return Ok(default_fn());
+    }
+    if raw.len() == 7 && raw.chars().nth(4) == Some('-') {
+        Ok(raw.to_string())
+    } else {
+        Err(r#"month は "this_month" または "YYYY-MM" で指定してください"#.to_string())
+    }
+}
+
+fn resolve_card_month(args: &Value, conn: &rusqlite::Connection) -> Result<String, String> {
+    let raw = args["month"].as_str().unwrap_or("this_month");
+    if raw == "this_month" {
+        return active_card_month(conn).map_err(|e| e.to_string());
     }
     if raw.len() == 7 && raw.chars().nth(4) == Some('-') {
         Ok(raw.to_string())
@@ -303,7 +315,7 @@ impl McpServer {
                 Ok(ok(serde_json::to_value(&snap).unwrap_or_default()))
             }
             "finance.card_summary" => {
-                let month = resolve_month(args, card_billing_month)?;
+                let month = resolve_card_month(args, conn)?;
                 let summary = get_card_month_summary(conn, &month).map_err(|e| e.to_string())?;
                 Ok(ok(serde_json::to_value(&summary).unwrap_or_default()))
             }
@@ -393,7 +405,8 @@ impl McpServer {
                     let r = import_directory(conn, None).map_err(|e| e.to_string())?;
                     serde_json::to_value(&r).unwrap_or_default()
                 };
-                refresh_card_unbilled(conn, &card_billing_month()).map_err(|e| e.to_string())?;
+                let month = active_card_month(conn).map_err(|e| e.to_string())?;
+                refresh_card_unbilled(conn, &month).map_err(|e| e.to_string())?;
                 Ok(ok(result))
             }
             "finance.build_context" => {

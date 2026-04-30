@@ -1,9 +1,12 @@
+use crate::config::config_path;
 use crate::error::Result;
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
 pub fn default_db_path() -> PathBuf {
-    PathBuf::from("finance.sqlite3")
+    config_path()
+        .and_then(|path| path.parent().map(|parent| parent.join("finance.sqlite3")))
+        .unwrap_or_else(|| PathBuf::from("finance.sqlite3"))
 }
 
 const SCHEMA_SQL: &str = r#"

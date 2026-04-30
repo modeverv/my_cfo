@@ -21,7 +21,7 @@ use crate::commands::handle_command;
 use crate::db::connect;
 use crate::models::format_amount;
 use crate::services::ask_context::{
-    card_billing_month, get_card_month_summary, get_recent_transfers, get_wallet_month_summary,
+    active_card_month, get_card_month_summary, get_recent_transfers, get_wallet_month_summary,
 };
 use crate::services::snapshots::get_latest_snapshot;
 
@@ -84,17 +84,18 @@ impl App {
                 );
             }
 
-            let billing = card_billing_month();
-            if let Ok(summary) = get_card_month_summary(&conn, &billing) {
-                let mut lines = vec![format!(
-                    "カード 支払月:{} — {}円",
-                    billing,
-                    format_amount(summary.total)
-                )];
-                for m in summary.by_merchant.iter().take(5) {
-                    lines.push(format!("  {} {}円", m.merchant, format_amount(m.total)));
+            if let Ok(billing) = active_card_month(&conn) {
+                if let Ok(summary) = get_card_month_summary(&conn, &billing) {
+                    let mut lines = vec![format!(
+                        "カード 支払月:{} — {}円",
+                        billing,
+                        format_amount(summary.total)
+                    )];
+                    for m in summary.by_merchant.iter().take(5) {
+                        lines.push(format!("  {} {}円", m.merchant, format_amount(m.total)));
+                    }
+                    self.side.card_lines = lines;
                 }
-                self.side.card_lines = lines;
             }
 
             let this_month = chrono::Local::now().format("%Y-%m").to_string();

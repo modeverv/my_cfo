@@ -23,6 +23,7 @@ cargo build --release
 | バイナリ | 説明 |
 |---------|------|
 | `target/release/cfor` | CLI / TUI |
+| `target/release/cfor-tui` | TUI 専用 |
 | `target/release/cfor-mcp` | MCP stdio サーバー |
 
 ---
@@ -35,6 +36,9 @@ cargo build --release
 
 # TUI モード
 ./cfor_rs/target/release/cfor --db finance.sqlite3 --tui
+
+# TUI 専用バイナリ
+./cfor_rs/target/release/cfor-tui --db finance.sqlite3
 
 # 単発コマンド
 ./cfor_rs/target/release/cfor --db finance.sqlite3 /now
@@ -123,16 +127,18 @@ make portable
 
 ```text
 cfor_rs/dist/cfor_rs_portable/
-├── bin/
-│   ├── cfor
-│   └── cfor-mcp
+├── cfor
+├── cfor-tui
+├── cfor-mcp
+├── finance.sqlite3
 ├── finance_config.yaml
 └── data/
     └── inbox/
         └── card/
 ```
 
-このディレクトリを移動した後も、ディレクトリ直下から `./bin/cfor --db finance.sqlite3 /import-card` を実行すれば、同梱の `finance_config.yaml` を基準に `data/inbox/card/` を走査する。
+このディレクトリを移動した後も、ディレクトリ直下から `./cfor /import-card` を実行すれば、同梱の `finance_config.yaml` を基準に `data/inbox/card/` を走査し、同梱の `finance.sqlite3` に保存する。  
+`--db` を省略した場合の DB は、見つかった `finance_config.yaml` と同じディレクトリの `finance.sqlite3` になる。
 
 ### LLM 分析
 

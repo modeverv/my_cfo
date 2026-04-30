@@ -6,10 +6,11 @@ QUESTION ?= 今月ってカード使いすぎ？
 BIN_DIR    = target/release
 CLI_BIN    = $(BIN_DIR)/cfor
 MCP_BIN    = $(BIN_DIR)/cfor-mcp
+TUI_BIN    = $(BIN_DIR)/cfor-tui
 SMOKE_DB   = /tmp/cfor_rs_smoke.sqlite3
 DIST_DIR   ?= dist/cfor_rs_portable
-DIST_BIN_DIR = $(DIST_DIR)/bin
 DIST_CARD_DIR = $(DIST_DIR)/data/inbox/card
+DIST_DB = $(DIST_DIR)/finance.sqlite3
 DIST_SMOKE_DB = $(DIST_DIR)/portable-smoke.sqlite3
 
 .PHONY: help build release portable portable-smoke run tui mcp now set-bank set-securities cash-set ask smoke clean-smoke clean-portable
@@ -38,28 +39,34 @@ release:
 
 portable: release
 	rm -rf $(DIST_DIR)
-	install -d $(DIST_BIN_DIR) $(DIST_CARD_DIR)
-	cp $(CLI_BIN) $(DIST_BIN_DIR)/
-	cp $(MCP_BIN) $(DIST_BIN_DIR)/
+	install -d $(DIST_DIR) $(DIST_CARD_DIR)
+	cp $(CLI_BIN) $(DIST_DIR)/
+	cp $(TUI_BIN) $(DIST_DIR)/
+	cp $(MCP_BIN) $(DIST_DIR)/
 	cp finance_config.yaml $(DIST_DIR)/
 	find data/inbox/card -maxdepth 1 -type f -name '*.csv' -exec cp {} $(DIST_CARD_DIR)/ \;
 	touch $(DIST_CARD_DIR)/.gitkeep
+	cd $(DIST_DIR) && ./cfor /now >/dev/null
 	@printf '%s\n' 'Portable release created: $(DIST_DIR)'
 
 portable-smoke: portable
+	test -f $(DIST_DB)
+	cd $(DIST_DIR) && ./cfor /now
 	rm -f $(DIST_SMOKE_DB)
-	cd $(DIST_DIR) && ./bin/cfor --db portable-smoke.sqlite3 /import-card
+	cd $(DIST_DIR) && ./cfor --db portable-smoke.sqlite3 /import-card
 	rm -f $(DIST_SMOKE_DB)
 
 $(CLI_BIN): release
 
 $(MCP_BIN): release
 
+$(TUI_BIN): release
+
 run: $(CLI_BIN)
 	$(CLI_BIN) --db $(DB)
 
-tui: $(CLI_BIN)
-	$(CLI_BIN) --db $(DB) --tui
+tui: $(TUI_BIN)
+	$(TUI_BIN) --db $(DB)
 
 mcp: $(MCP_BIN)
 	$(MCP_BIN) --db $(DB)

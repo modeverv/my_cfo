@@ -2,7 +2,7 @@ use crate::error::{FinError, Result};
 use crate::importers::credit_card_csv::{import_csv, import_directory};
 use crate::llm::chat_completion;
 use crate::services::ask_context::{
-    build_ask_prompt, build_finance_context, card_billing_month, refresh_card_unbilled,
+    active_card_month, build_ask_prompt, build_finance_context, refresh_card_unbilled,
 };
 use crate::services::manual_snapshots::{
     cash_add, cash_out, set_bank_total, set_securities_total, set_wallet_total,
@@ -130,7 +130,8 @@ pub fn handle_command(conn: &Connection, command_line: &str) -> Result<String> {
                 (r, label)
             };
 
-            let snap = refresh_card_unbilled(conn, &card_billing_month())?;
+            let month = active_card_month(conn)?;
+            let snap = refresh_card_unbilled(conn, &month)?;
             let mut lines = vec![format!(
                 "{}: {}件取り込み / {}件スキップ(重複)",
                 label, result.imported, result.skipped
@@ -149,7 +150,7 @@ pub fn handle_command(conn: &Connection, command_line: &str) -> Result<String> {
         "/card" => {
             let arg = parts.get(1).map(|s| s.as_str()).unwrap_or("this_month");
             let month = if arg == "this_month" {
-                card_billing_month()
+                active_card_month(conn)?
             } else {
                 arg.to_string()
             };
