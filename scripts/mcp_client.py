@@ -13,7 +13,7 @@ def build_request(method: str, params: dict[str, Any] | None, id: int = 1) -> di
     return {"jsonrpc": "2.0", "id": id, "method": method, "params": params or {}}
 
 
-def call_tool(server_cmd: list[str], tool_name: str, arguments: dict | None, db: str | None = None) -> None:
+def call_tool(server_cmd: list[str], tool_name: str, arguments: dict | None) -> None:
     # Start MCP server as subprocess
     proc = subprocess.Popen(
         server_cmd,
@@ -36,7 +36,6 @@ def call_tool(server_cmd: list[str], tool_name: str, arguments: dict | None, db:
         line = proc.stdout.readline()
         if not line:
             raise RuntimeError("No response from MCP server")
-        resp = json.loads(line)
         # call the desired tool
         call_req = build_request("tools/call", {"name": tool_name, "arguments": arguments or {}})
         proc.stdin.write(json.dumps(call_req, ensure_ascii=False) + "\n")
@@ -69,7 +68,7 @@ def main() -> None:
         raise SystemExit(f"--args is not valid JSON: {exc}")
 
     server_cmd = [args.python, "-m", "finance_mcp.server", "--db", args.db]
-    call_tool(server_cmd, args.tool, arguments, db=args.db)
+    call_tool(server_cmd, args.tool, arguments)
 
 
 if __name__ == "__main__":

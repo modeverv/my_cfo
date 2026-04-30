@@ -32,6 +32,7 @@ from finance_core.services.transfers import transfer as core_transfer
 
 SERVER_NAME = "personal-finance-console"
 SERVER_VERSION = "0.1.0"
+USAGE_IMAGE_URI = "finance://usage-image"
 
 USAGE_IMAGE = """# Personal Finance Console MCP 使用イメージ
 
@@ -316,7 +317,6 @@ TOOL_DEFINITIONS: list[JsonDict] = [
     },
 ]
 
-
 class FinanceMcpServer:
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
@@ -352,7 +352,7 @@ class FinanceMcpServer:
             return {
                 "resources": [
                     {
-                        "uri": "finance://usage-image",
+                        "uri": USAGE_IMAGE_URI,
                         "name": "Personal Finance Console MCP 使用イメージ",
                         "description": "LLMから見たツール呼び出し例と重要ルール。",
                         "mimeType": "text/markdown",
@@ -361,12 +361,12 @@ class FinanceMcpServer:
             }
         if method == "resources/read":
             uri = params.get("uri")
-            if uri != "finance://usage-image":
+            if uri != USAGE_IMAGE_URI:
                 raise ValueError(f"未知のresourceです: {uri}")
             return {
                 "contents": [
                     {
-                        "uri": "finance://usage-image",
+                        "uri": USAGE_IMAGE_URI,
                         "mimeType": "text/markdown",
                         "text": USAGE_IMAGE,
                     }
