@@ -6,8 +6,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from finance_core.db import connect, init_db
-from finance_core.importers.credit_card_csv import import_csv, parse_csv
+from finance_core.importers.credit_card_csv import import_csv, import_directory, parse_csv
 from finance_core.services.ask_context import (
+    build_finance_context,
     card_billing_month,
     get_card_month_summary,
     refresh_card_unbilled,
@@ -84,6 +85,26 @@ class WalletAndTransferTests(DatabaseTestCase):
         self.assertEqual(snapshot["wallet_total"], 4_000)
         self.assertEqual(snapshot["total_assets"], before)
 
+    def test_atm_command_keeps_total_assets_unchanged(self) -> None:
+        handle_command(self.conn, "/set-bank 10000")
+        handle_command(self.conn, "/cash-set 1000")
+        before = get_latest_snapshot(self.conn)["total_assets"]
+
+        output = handle_command(self.conn, "/atm 3000 ATM")
+        after = get_latest_snapshot(self.conn)
+
+        self.assertIn("総資産は変わりません", output)
+        self.assertEqual(after["bank_total"], 7_000)
+        self.assertEqual(after["wallet_total"], 4_000)
+        self.assertEqual(after["total_assets"], before)
+
+    def test_wallet_to_bank_transfer_rejects_insufficient_wallet_balance(self) -> None:
+        handle_command(self.conn, "/set-bank 10000")
+        handle_command(self.conn, "/cash-set 1000")
+
+        with self.assertRaises(ValueError):
+            transfer(self.conn, "wallet", "bank", 1_001, "deposit")
+
 
 class CardSummaryTests(DatabaseTestCase):
     def test_card_summary_and_unbilled_refresh_use_payment_month(self) -> None:
@@ -109,6 +130,33 @@ class CardSummaryTests(DatabaseTestCase):
 
     def test_card_billing_month_rolls_over_year(self) -> None:
         self.assertEqual(card_billing_month(date(2026, 12, 15)), "2027-01")
+
+
+class AskContextTests(DatabaseTestCase):
+    def test_ask_context_keeps_card_wallet_and_transfer_sections_separate(self) -> None:
+        handle_command(self.conn, "/set-bank 10000")
+        handle_command(self.conn, "/cash-set 1000")
+        handle_command(self.conn, "/cash-out 200 lunch")
+        handle_command(self.conn, "/atm 3000 ATM")
+        self.conn.execute(
+            """
+            INSERT INTO card_transactions (used_on, merchant, amount, payment_month)
+            VALUES (?, ?, ?, ?)
+            """,
+            ("2026-04-01", "Amazon", 1_200, card_billing_month()),
+        )
+
+        context = build_finance_context(self.conn, "今月どう？")
+
+        self.assertIn("## 今月のカード利用", context)
+        self.assertIn("Amazon", context)
+        self.assertIn("'total': 1200", context)
+        self.assertIn("## 今月の現金支出", context)
+        self.assertIn("財布支出合計: 200円", context)
+        self.assertIn("lunch", context)
+        self.assertIn("## 最近の振替", context)
+        self.assertIn("'from_account': 'bank'", context)
+        self.assertIn("'to_account': 'wallet'", context)
 
 
 class CreditCardCsvImportTests(DatabaseTestCase):
@@ -183,6 +231,34 @@ class CreditCardCsvImportTests(DatabaseTestCase):
         self.assertEqual(result["skipped"], 1)
         count = self.conn.execute("SELECT COUNT(*) FROM card_transactions").fetchone()[0]
         self.assertEqual(count, 2)
+
+    def test_import_directory_handles_empty_directory(self) -> None:
+        with TemporaryDirectory() as tmp:
+            result = import_directory(self.conn, Path(tmp))
+
+        self.assertEqual(result, {"imported": 0, "skipped": 0, "errors": [], "files": 0})
+
+    def test_import_directory_reports_same_file_reimport_as_row_skips(self) -> None:
+        with TemporaryDirectory() as tmp:
+            inbox = Path(tmp)
+            csv_path = inbox / "202604.csv"
+            csv_path.write_text(
+                "利用日,利用店名,利用金額,支払回数計,今回回数,今回支払額,備考\n"
+                "2026/4/1,ＡＭＡＺＯＮ,1200,1,1,1200,\n"
+                "2026/4/2,コンビニ,500,1,1,500,\n",
+                encoding="cp932",
+            )
+
+            first = import_directory(self.conn, inbox)
+            second = import_directory(self.conn, inbox)
+
+        self.assertEqual(first["files"], 1)
+        self.assertEqual(first["imported"], 2)
+        self.assertEqual(first["skipped"], 0)
+        self.assertEqual(second["files"], 1)
+        self.assertEqual(second["imported"], 0)
+        self.assertEqual(second["skipped"], 2)
+        self.assertEqual(second["errors"], [])
 
 
 if __name__ == "__main__":
