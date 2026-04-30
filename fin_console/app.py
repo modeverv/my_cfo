@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
+from typing import Any
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -16,20 +17,14 @@ from finance_core.services.ask_context import (
     get_recent_transfers,
     get_wallet_month_summary,
 )
+from finance_core.services.commands import handle_command
 from finance_core.services.snapshots import get_latest_snapshot
 
 
-# ── ヘッダー ──────────────────────────────────────────────
+# ── 画面描画 ──────────────────────────────────────────────
 
 class StatusHeader(Static):
-    def refresh_stats(self, db_path: Path) -> None:
-        with connect(db_path) as conn:
-            snap = get_latest_snapshot(conn)
-        as_of = snap["as_of_date"]
-        total = snap["total_assets"]
-        card  = snap["credit_card_unbilled"]
-        wallet = snap["wallet_total"]
-
+    def update_stats(self, snap: dict[str, Any]) -> None:
         def fmt(n: int) -> str:
             if abs(n) >= 1_000_000:
                 return f"{n / 1_000_000:.1f}M"
@@ -38,21 +33,19 @@ class StatusHeader(Static):
             return str(n)
 
         self.update(
-            f" as_of: {as_of} │ total: {fmt(total)} │ card: {fmt(card)} │ wallet: {fmt(wallet)}"
+            f" as_of: {snap['as_of_date']} │ total: {fmt(snap['total_assets'])}"
+            f" │ card: {fmt(snap['credit_card_unbilled'])} │ wallet: {fmt(snap['wallet_total'])}"
         )
 
 
-# ── サイドパネル ──────────────────────────────────────────
-
 class SidePane(RichLog):
-    def refresh_side(self, db_path: Path) -> None:
+    def update_side(
+        self,
+        card_summary: dict[str, Any],
+        wallet_summary: dict[str, Any],
+        transfers: list[dict[str, Any]],
+    ) -> None:
         self.clear()
-        with connect(db_path) as conn:
-            billing = card_billing_month()
-            usage   = current_month()
-            card_summary = get_card_month_summary(conn, billing)
-            wallet_summary = get_wallet_month_summary(conn, usage)
-            transfers = get_recent_transfers(conn, limit=5)
 
         self.write("[bold #00ff66]── 高額カード決済 TOP5 ──[/bold #00ff66]")
         for t in card_summary["large_transactions"][:5]:
@@ -73,9 +66,11 @@ class SidePane(RichLog):
         if transfers:
             for tr in transfers:
                 memo = f" [dim]{str(tr['memo'])}[/dim]" if tr["memo"] else ""
-                from_acc = str(tr["from_account"])
-                to_acc   = str(tr["to_account"])
-                self.write(f"  [#007733]{tr['occurred_on']}[/#007733]  [cyan]{from_acc}→{to_acc}[/cyan]  {int(tr['amount']):,}円{memo}")
+                self.write(
+                    f"  [#007733]{tr['occurred_on']}[/#007733]"
+                    f"  [cyan]{tr['from_account']}→{tr['to_account']}[/cyan]"
+                    f"  {int(tr['amount']):,}円{memo}"
+                )
         else:
             self.write("  [dim]（記録なし）[/dim]")
 
@@ -177,6 +172,8 @@ class FinanceApp(App):
         self._refresh_all()
         self.query_one(self._CMD_INPUT, Input).focus()
 
+    # ── 入力処理 ─────────────────────────────────────────
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
         line = event.value.strip()
         event.input.clear()
@@ -185,26 +182,18 @@ class FinanceApp(App):
         if line in {"q", "quit", "exit"}:
             self.exit()
             return
-        self._run_command(line)
-
-    # ── コマンド実行 ─────────────────────────────────────
-
-    def _run_command(self, command_line: str) -> None:
         main_log = self.query_one(self._MAIN_PANE, RichLog)
-        main_log.write(f"[bold #00ff66]fin>[/bold #00ff66] [#00cc44]{command_line}[/#00cc44]")
+        main_log.write(f"[bold #00ff66]fin>[/bold #00ff66] [#00cc44]{line}[/#00cc44]")
+        if line.startswith("/ask"):
+            self._dispatch_ask(line)
+        else:
+            self._execute(line)
 
-        # /ask は時間がかかるのでスレッドで実行
-        if command_line.startswith("/ask"):
-            main_log.write("[dim]LLMに問い合わせ中です、お待ちください...[/dim]")
-            threading.Thread(
-                target=self._run_ask_thread,
-                args=(command_line,),
-                daemon=True,
-            ).start()
-            return
+    # ── コマンド実行 ──────────────────────────────────────
 
+    def _execute(self, command_line: str) -> None:
+        main_log = self.query_one(self._MAIN_PANE, RichLog)
         try:
-            from finance_core.services.commands import handle_command
             with connect(self.db_path) as conn:
                 output = handle_command(conn, command_line)
                 conn.commit()
@@ -212,13 +201,17 @@ class FinanceApp(App):
                 main_log.write(output)
         except Exception as exc:
             main_log.write(f"[red]ERROR: {exc}[/red]")
-
         self._refresh_all()
 
-    def _run_ask_thread(self, command_line: str) -> None:
+    # ── /ask 非同期処理 ───────────────────────────────────
+
+    def _dispatch_ask(self, command_line: str) -> None:
+        self.query_one(self._MAIN_PANE, RichLog).write("[dim]LLMに問い合わせ中です、お待ちください...[/dim]")
+        threading.Thread(target=self._ask_worker, args=(command_line,), daemon=True).start()
+
+    def _ask_worker(self, command_line: str) -> None:
         main_log = self.query_one(self._MAIN_PANE, RichLog)
         try:
-            from finance_core.services.commands import handle_command
             with connect(self.db_path) as conn:
                 output = handle_command(conn, command_line)
                 conn.commit()
@@ -227,9 +220,17 @@ class FinanceApp(App):
             self.call_from_thread(main_log.write, f"[red]ERROR: {exc}[/red]")
         self.call_from_thread(self._refresh_all)
 
+    # ── 画面更新（データ取得 → ウィジェットへ渡す） ────────
+
     def _refresh_all(self) -> None:
-        self.query_one(self._STATUS_HDR, StatusHeader).refresh_stats(self.db_path)
-        self.query_one(self._SIDE_PANE, SidePane).refresh_side(self.db_path)
+        with connect(self.db_path) as conn:
+            snap = get_latest_snapshot(conn)
+            card_summary    = get_card_month_summary(conn, card_billing_month())
+            wallet_summary  = get_wallet_month_summary(conn, current_month())
+            transfers       = get_recent_transfers(conn, limit=5)
+
+        self.query_one(self._STATUS_HDR, StatusHeader).update_stats(snap)
+        self.query_one(self._SIDE_PANE, SidePane).update_side(card_summary, wallet_summary, transfers)
 
     # ── キーバインド ─────────────────────────────────────
 
@@ -243,7 +244,7 @@ class FinanceApp(App):
             "  /cash-in <amount> <memo>  財布に入金\n"
             "  /cash-out <amount> <memo> 財布から支出\n"
             "  /cash                     財布の取引履歴\n"
-            "  /atm <amount> [memo]             銀行→財布へATM引き出し\n"
+            "  /atm <amount> [memo]      銀行→財布へATM引き出し\n"
             "  /import [dir]             CSVを一括取り込み（重複スキップ）\n"
             "  /card [this_month|YYYY-MM] カード利用集計\n"
             "  /ask <質問>               LLMに分析を依頼\n"
@@ -251,13 +252,16 @@ class FinanceApp(App):
         self.query_one(self._MAIN_PANE, RichLog).write(help_text)
 
     def action_cmd_now(self) -> None:
-        self._run_command("/now")
+        self.query_one(self._CMD_INPUT, Input).clear()
+        self._execute("/now")
 
     def action_cmd_card(self) -> None:
-        self._run_command("/card this_month")
+        self.query_one(self._CMD_INPUT, Input).clear()
+        self._execute("/card this_month")
 
     def action_cmd_cash(self) -> None:
-        self._run_command("/cash")
+        self.query_one(self._CMD_INPUT, Input).clear()
+        self._execute("/cash")
 
     def action_focus_atm(self) -> None:
         inp = self.query_one(self._CMD_INPUT, Input)
