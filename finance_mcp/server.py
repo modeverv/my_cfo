@@ -76,6 +76,7 @@ SERVER_INSTRUCTIONS = """Personal Finance Console MCP.
 Use these tools through finance_core only. Never run arbitrary SQL.
 Do not confuse transfers with spending: bank -> wallet changes location only.
 Use the resource finance://usage-image for concrete usage examples.
+Use `finance.import_card` with no arguments to scan the configured default card CSV inbox.
 """
 
 
@@ -305,8 +306,8 @@ TOOL_DEFINITIONS: list[JsonDict] = [
     },
     {
         "name": "finance.import_card",
-        "description": "クレカCSVを取り込む。pathにはCSVファイルまたはディレクトリを指定できる。",
-        "inputSchema": _schema({"path": {"type": "string"}}),
+        "description": "デフォルト受信フォルダのクレカCSVを取り込む。引数なしで呼び出す。",
+        "inputSchema": _schema(),
     },
     {
         "name": "finance.build_context",

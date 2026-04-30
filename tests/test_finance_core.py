@@ -293,6 +293,14 @@ class McpServerTests(DatabaseTestCase):
         self.assertIn("finance.transfer", tool_names)
         self.assertIn("finance.build_context", tool_names)
 
+        import_tool = next(
+            tool for tool in tools_response["result"]["tools"] if tool["name"] == "finance.import_card"
+        )
+        self.assertEqual(import_tool["inputSchema"]["properties"], {})
+        self.assertEqual(import_tool["inputSchema"]["required"], [])
+        self.assertNotIn("parameters", import_tool)
+        self.assertNotIn("path", json.dumps(import_tool, ensure_ascii=False))
+
         resource_response = self.server.handle({
             "jsonrpc": "2.0",
             "id": 2,
