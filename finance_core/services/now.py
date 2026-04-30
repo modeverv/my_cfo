@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
+from finance_core.services.ask_context import current_month, get_card_month_summary
 from finance_core.services.snapshots import get_latest_snapshot
 
 
@@ -48,5 +49,33 @@ def show_wallet(conn: sqlite3.Connection, limit: int = 10) -> str:
             lines.append(f"  {row['occurred_on']}  {label}  {row['amount']:>10,}円  {desc}")
     else:
         lines.append("取引履歴がありません")
+
+    return "\n".join(lines)
+
+
+def show_card(conn: sqlite3.Connection, month: str | None = None) -> str:
+    target = month or current_month()
+    summary = get_card_month_summary(conn, target)
+
+    count = conn.execute(
+        """
+        SELECT COUNT(*) AS cnt
+        FROM card_transactions
+        WHERE COALESCE(payment_month, substr(used_on, 1, 7)) = ?
+        """,
+        (target,),
+    ).fetchone()["cnt"]
+
+    lines = [
+        f"カード利用 {target} — {count}件  計 {summary['total']:,}円",
+        "",
+        "加盟店別TOP10:",
+    ]
+    for row in summary["by_merchant"]:
+        lines.append(f"  {row['merchant']:<30}  {row['total']:>10,}円")
+
+    lines += ["", "高額TOP10:"]
+    for row in summary["large_transactions"]:
+        lines.append(f"  {row['used_on']}  {row['merchant']:<30}  {row['amount']:>10,}円")
 
     return "\n".join(lines)

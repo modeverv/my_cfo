@@ -11,6 +11,17 @@ def current_month(today: date | None = None) -> str:
     return target.strftime("%Y-%m")
 
 
+def card_billing_month(today: date | None = None) -> str:
+    """今月利用分の引き落とし月（翌月）を返す"""
+    target = today or date.today()
+    year = target.year
+    month = target.month + 1
+    if month == 13:
+        year += 1
+        month = 1
+    return f"{year:04d}-{month:02d}"
+
+
 def previous_month(today: date | None = None) -> str:
     target = today or date.today()
     year = target.year
@@ -130,6 +141,20 @@ def get_recent_transfers(conn: sqlite3.Connection, limit: int = 10) -> list[dict
         }
         for row in rows
     ]
+
+
+def refresh_card_unbilled(conn: sqlite3.Connection, month: str | None = None) -> dict:
+    from finance_core.services.snapshots import insert_snapshot
+    target = month or current_month()
+    total = conn.execute(
+        """
+        SELECT COALESCE(SUM(amount), 0) AS total
+        FROM card_transactions
+        WHERE COALESCE(payment_month, substr(used_on, 1, 7)) = ?
+        """,
+        (target,),
+    ).fetchone()["total"]
+    return insert_snapshot(conn, credit_card_unbilled=int(total), memo=f"card refresh {target}")
 
 
 def build_finance_context(conn: sqlite3.Connection, question: str) -> str:

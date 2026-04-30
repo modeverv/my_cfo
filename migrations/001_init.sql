@@ -51,3 +51,15 @@ CREATE INDEX IF NOT EXISTS idx_card_transactions_payment_month
 
 CREATE INDEX IF NOT EXISTS idx_card_transactions_merchant
   ON card_transactions(merchant);
+
+CREATE TABLE IF NOT EXISTS imports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_type TEXT NOT NULL,
+  source_name TEXT,
+  file_path TEXT NOT NULL,
+  file_hash TEXT UNIQUE NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  error_message TEXT,
+  imported_at TEXT,
+  created_at TEXT DEFAULT (datetime('now', 'localtime'))
+);

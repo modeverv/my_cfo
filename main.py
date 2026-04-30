@@ -15,7 +15,9 @@ from finance_core.services.manual_snapshots import (
     set_securities_total,
     set_wallet_total,
 )
-from finance_core.services.now import show_now, show_wallet
+from finance_core.importers.credit_card_csv import import_csv, import_directory
+from finance_core.services.ask_context import card_billing_month, current_month, refresh_card_unbilled
+from finance_core.services.now import show_card, show_now, show_wallet
 from finance_core.services.transfers import transfer
 from finance_core.services.snapshots import format_snapshot
 
@@ -72,6 +74,33 @@ def handle_command(conn: sqlite3.Connection, command_line: str) -> str:
 
     if command == "/cash":
         return show_wallet(conn)
+
+    if command == "/import":
+        directory = Path(parts[1]) if len(parts) > 1 else None
+        result = import_directory(conn, directory)
+        snapshot = refresh_card_unbilled(conn, card_billing_month())
+        lines = [
+            f"{result['files']}ファイルを走査: "
+            f"{result['imported']}件取り込み / {result['skipped']}件スキップ(重複)"
+        ]
+        for err in result["errors"]:
+            lines.append(f"  ERROR: {err}")
+        lines.append(format_snapshot(snapshot))
+        return "\n".join(lines)
+
+    if command == "/import-card":
+        require_args(parts, 2, "/import-card <path>")
+        result = import_csv(conn, parts[1])
+        snapshot = refresh_card_unbilled(conn, card_billing_month())
+        return (
+            f"{result['imported']}件のカード明細を取り込みました\n"
+            + format_snapshot(snapshot)
+        )
+
+    if command == "/card":
+        arg = parts[1] if len(parts) > 1 else "this_month"
+        month = card_billing_month() if arg == "this_month" else arg
+        return show_card(conn, month)
 
     if command == "/transfer":
         if len(parts) < 4:
@@ -148,9 +177,10 @@ def main() -> None:
         try:
             output = handle_command(conn, command_line)
             conn.commit()
-        except Exception:
+        except Exception as exc:
             conn.rollback()
-            raise
+            print(f"ERROR: {exc}")
+            raise SystemExit(1)
     if output:
         print(output)
 
