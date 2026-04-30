@@ -261,7 +261,7 @@ MCP はこの上に薄く乗せる。
 
 ```text
 入力:
-- path: str
+- path: str (省略可)
 ```
 
 戻り値。
@@ -280,6 +280,30 @@ MCP はこの上に薄く乗せる。
 ```text
 - 同一ファイルの重複 import は避ける
 - 行単位の重複もスキップする
+
+呼び出し例:
+
+1) 引数無し: デフォルトの inbox を走査（`/import` と同等）
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {"name": "finance.import_card", "arguments": {}}
+}
+```
+
+2) ファイル指定:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/call",
+  "params": {"name": "finance.import_card", "arguments": {"path": "/path/to/202604.csv"}}
+}
+```
 ```
 
 ---

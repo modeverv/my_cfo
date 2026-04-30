@@ -184,20 +184,24 @@ def finance_transfer(conn: sqlite3.Connection, args: JsonDict) -> JsonDict:
 
 
 def finance_import_card(conn: sqlite3.Connection, args: JsonDict) -> JsonDict:
+    # path is optional. If omitted, scan the default inbox (same as /import)
     raw_path = args.get("path")
-    if not isinstance(raw_path, str) or not raw_path:
-        raise ValueError("path は文字列で指定してください")
-    path = Path(raw_path)
-    if path.is_file():
-        result = import_csv(conn, path)
-        output = {
-            "imported": result["imported"],
-            "skipped": result["skipped"],
-            "files": 1,
-            "errors": [],
-        }
+    if raw_path is None:
+        output = import_directory(conn, None)
     else:
-        output = import_directory(conn, path)
+        if not isinstance(raw_path, str) or not raw_path:
+            raise ValueError("path は文字列で指定してください")
+        path = Path(raw_path)
+        if path.is_file():
+            result = import_csv(conn, path)
+            output = {
+                "imported": result["imported"],
+                "skipped": result["skipped"],
+                "files": 1,
+                "errors": [],
+            }
+        else:
+            output = import_directory(conn, path)
     refresh_card_unbilled(conn, card_billing_month())
     return _ok(output)
 
@@ -302,7 +306,7 @@ TOOL_DEFINITIONS: list[JsonDict] = [
     {
         "name": "finance.import_card",
         "description": "クレカCSVを取り込む。pathにはCSVファイルまたはディレクトリを指定できる。",
-        "inputSchema": _schema({"path": {"type": "string"}}, ["path"]),
+        "inputSchema": _schema({"path": {"type": "string"}}),
     },
     {
         "name": "finance.build_context",

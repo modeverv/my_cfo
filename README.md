@@ -144,6 +144,30 @@ MCPクライアント設定例:
 
 MCP resource として `finance://usage-image` も公開している。LLMから見た呼び出し例、総資産の定義、振替を支出扱いしない注意点を埋め込んである。
 
+追記: `finance.import_card` は `path` 引数を省略して呼べます。引数無しの場合は `finance_core` の設定で指定されたデフォルトの受信フォルダ（`data/inbox/card` 等）を走査し、ディレクトリ内の CSV をまとめて取り込みます。個別ファイルを指定したい場合は `path` にファイルパスを与えてください。
+
+例: MCP クライアントからの呼び出し（引数無しでデフォルト受信箱を走査）
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {"name": "finance.import_card", "arguments": {}}
+}
+```
+
+例: MCP クライアントから単一ファイルを指定して取り込む
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/call",
+  "params": {"name": "finance.import_card", "arguments": {"path": "/path/to/202604.csv"}}
+}
+```
+
 ---
 
 ## TUI キーバインド
