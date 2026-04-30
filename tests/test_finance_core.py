@@ -1,0 +1,189 @@
+from __future__ import annotations
+
+import unittest
+from datetime import date
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from finance_core.db import connect, init_db
+from finance_core.importers.credit_card_csv import import_csv, parse_csv
+from finance_core.services.ask_context import (
+    card_billing_month,
+    get_card_month_summary,
+    refresh_card_unbilled,
+)
+from finance_core.services.commands import handle_command
+from finance_core.services.manual_snapshots import cash_in, cash_out, set_wallet_total
+from finance_core.services.snapshots import calculate_total, get_latest_snapshot
+from finance_core.services.transfers import transfer
+
+
+class DatabaseTestCase(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = TemporaryDirectory()
+        self.db_path = Path(self._tmp.name) / "finance.sqlite3"
+        init_db(self.db_path)
+        self.conn = connect(self.db_path)
+
+    def tearDown(self) -> None:
+        self.conn.close()
+        self._tmp.cleanup()
+
+
+class SnapshotTests(DatabaseTestCase):
+    def test_calculate_total_subtracts_credit_card_unbilled(self) -> None:
+        self.assertEqual(
+            calculate_total(
+                bank_total=3_200_000,
+                securities_total=58_800_000,
+                wallet_total=42_000,
+                credit_card_unbilled=230_000,
+            ),
+            61_812_000,
+        )
+
+    def test_set_commands_update_latest_snapshot(self) -> None:
+        handle_command(self.conn, "/set-bank 3200000")
+        handle_command(self.conn, "/set-securities 58800000")
+        handle_command(self.conn, "/cash-set 42000")
+
+        latest = get_latest_snapshot(self.conn)
+        self.assertEqual(latest["bank_total"], 3_200_000)
+        self.assertEqual(latest["securities_total"], 58_800_000)
+        self.assertEqual(latest["wallet_total"], 42_000)
+        self.assertEqual(latest["total_assets"], 62_042_000)
+
+
+class WalletAndTransferTests(DatabaseTestCase):
+    def test_cash_in_and_cash_out_change_total_assets(self) -> None:
+        set_wallet_total(self.conn, 1_000)
+
+        after_in = cash_in(self.conn, 500, "refund")
+        self.assertEqual(after_in["wallet_total"], 1_500)
+        self.assertEqual(after_in["total_assets"], 1_500)
+
+        after_out = cash_out(self.conn, 200, "lunch")
+        self.assertEqual(after_out["wallet_total"], 1_300)
+        self.assertEqual(after_out["total_assets"], 1_300)
+
+    def test_cash_out_rejects_negative_wallet_balance(self) -> None:
+        set_wallet_total(self.conn, 300)
+
+        with self.assertRaises(ValueError):
+            cash_out(self.conn, 301, "too much")
+
+    def test_bank_to_wallet_transfer_keeps_total_assets_unchanged(self) -> None:
+        handle_command(self.conn, "/set-bank 10000")
+        handle_command(self.conn, "/cash-set 1000")
+        before = get_latest_snapshot(self.conn)["total_assets"]
+
+        result = transfer(self.conn, "bank", "wallet", 3_000, "ATM")
+        snapshot = result["snapshot"]
+
+        self.assertEqual(snapshot["bank_total"], 7_000)
+        self.assertEqual(snapshot["wallet_total"], 4_000)
+        self.assertEqual(snapshot["total_assets"], before)
+
+
+class CardSummaryTests(DatabaseTestCase):
+    def test_card_summary_and_unbilled_refresh_use_payment_month(self) -> None:
+        self.conn.executemany(
+            """
+            INSERT INTO card_transactions (used_on, merchant, amount, payment_month)
+            VALUES (?, ?, ?, ?)
+            """,
+            [
+                ("2026-04-01", "Amazon", 1_200, "2026-05"),
+                ("2026-04-02", "Cafe", 800, "2026-05"),
+                ("2026-04-03", "Amazon", 2_000, "2026-06"),
+            ],
+        )
+
+        summary = get_card_month_summary(self.conn, "2026-05")
+        self.assertEqual(summary["total"], 2_000)
+        self.assertEqual(summary["by_merchant"][0], {"merchant": "Amazon", "total": 1_200})
+
+        snapshot = refresh_card_unbilled(self.conn, "2026-05")
+        self.assertEqual(snapshot["credit_card_unbilled"], 2_000)
+        self.assertEqual(snapshot["total_assets"], -2_000)
+
+    def test_card_billing_month_rolls_over_year(self) -> None:
+        self.assertEqual(card_billing_month(date(2026, 12, 15)), "2027-01")
+
+
+class CreditCardCsvImportTests(DatabaseTestCase):
+    def test_parse_format_a_uses_filename_payment_month(self) -> None:
+        with TemporaryDirectory() as tmp:
+            csv_path = Path(tmp) / "202604.csv"
+            csv_path.write_text(
+                "利用日,利用店名,利用金額,支払回数計,今回回数,今回支払額,備考\n"
+                "2026/4/1,ＡＭＡＺＯＮ,1200,1,1,1200,\n",
+                encoding="cp932",
+            )
+
+            records = parse_csv(csv_path)
+
+        self.assertEqual(records, [
+            {
+                "used_on": "2026-04-01",
+                "merchant": "AMAZON",
+                "amount": 1_200,
+                "payment_month": "2026-04",
+            }
+        ])
+
+    def test_parse_format_b_uses_payment_month_column_and_amount_fallback(self) -> None:
+        with TemporaryDirectory() as tmp:
+            csv_path = Path(tmp) / "card.csv"
+            csv_path.write_text(
+                "2026/4/2,コンビニ,本人,一括,,'26/05,500,,\n"
+                "2026/4/3,スーパー,本人,一括,,'26/05,2000,1800,\n",
+                encoding="utf-8",
+            )
+
+            records = parse_csv(csv_path)
+
+        self.assertEqual(records, [
+            {
+                "used_on": "2026-04-02",
+                "merchant": "コンビニ",
+                "amount": 500,
+                "payment_month": "2026-05",
+            },
+            {
+                "used_on": "2026-04-03",
+                "merchant": "スーパー",
+                "amount": 1_800,
+                "payment_month": "2026-05",
+            },
+        ])
+
+    def test_import_csv_skips_duplicate_rows(self) -> None:
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            first = base / "202604.csv"
+            second = base / "202604_extra.csv"
+            first.write_text(
+                "利用日,利用店名,利用金額,支払回数計,今回回数,今回支払額,備考\n"
+                "2026/4/1,ＡＭＡＺＯＮ,1200,1,1,1200,\n",
+                encoding="cp932",
+            )
+            second.write_text(
+                "利用日,利用店名,利用金額,支払回数計,今回回数,今回支払額,備考\n"
+                "2026/4/1,ＡＭＡＺＯＮ,1200,1,1,1200,\n"
+                "2026/4/2,コンビニ,500,1,1,500,\n",
+                encoding="cp932",
+            )
+
+            self.assertEqual(import_csv(self.conn, first)["imported"], 1)
+            self.assertEqual(import_csv(self.conn, first)["skipped"], 1)
+            result = import_csv(self.conn, second)
+
+        self.assertEqual(result["imported"], 1)
+        self.assertEqual(result["skipped"], 1)
+        count = self.conn.execute("SELECT COUNT(*) FROM card_transactions").fetchone()[0]
+        self.assertEqual(count, 2)
+
+
+if __name__ == "__main__":
+    unittest.main()

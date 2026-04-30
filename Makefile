@@ -2,7 +2,7 @@ PYTHON ?= python3
 DB ?= finance.sqlite3
 QUESTION ?= 今月ってカード使いすぎ？
 
-.PHONY: help install init run tui now set-bank set-securities cash-set ask compile smoke clean-test-db
+.PHONY: help install init run tui now set-bank set-securities cash-set ask compile test smoke clean-test-db
 
 help:
 	@printf '%s\n' 'Targets:'
@@ -15,6 +15,7 @@ help:
 	@printf '%s\n' '  make set-securities AMOUNT=58800000 Set securities total'
 	@printf '%s\n' '  make cash-set AMOUNT=42000         Set wallet balance'
 	@printf '%s\n' '  make ask QUESTION=...              Ask LM Studio'
+	@printf '%s\n' '  make test                         Run unit tests'
 	@printf '%s\n' '  make smoke                         Run minimal verification with temp DB'
 
 install:
@@ -50,6 +51,9 @@ ask:
 
 compile:
 	$(PYTHON) -m compileall main.py finance_core
+
+test:
+	$(PYTHON) -m unittest discover -s tests
 
 smoke: clean-test-db
 	$(PYTHON) main.py --db /tmp/my_cfo_make_smoke.sqlite3 /set-bank 3200000
