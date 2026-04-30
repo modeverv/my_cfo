@@ -131,6 +131,42 @@ my_cfo/
 
 - ファイルハッシュで二重取り込みを自動防止
 - Shift-JIS (CP932) / UTF-8 どちらも対応
-- 対応フォーマット
+- `finance_config.yaml` の `card_csv` でフォーマットごとの列位置・支払月取得方法を設定
+- 初期設定の対応フォーマット
   - **Format A**: ヘッダー行あり、支払月をファイル名（`202604.csv` → `2026-04`）から取得
   - **Format B**: ヘッダー行なし、支払月を列から取得
+
+設定例:
+
+```yaml
+card_csv:
+  default_inbox: data/inbox/card
+  encodings:
+    - utf-8-sig
+    - utf-8
+    - cp932
+  formats:
+    - name: format_a_filename_payment_month
+      detect:
+        first_column_is_date: false
+      columns:
+        used_on: 0
+        merchant: 1
+        amount: 5
+      payment_month:
+        source: filename
+        parser: yyyymm
+        fallback: current_month
+
+    - name: format_b_payment_month_column
+      detect:
+        first_column_is_date: true
+      columns:
+        used_on: 0
+        merchant: 1
+        amount: [7, 6]
+      payment_month:
+        source: column
+        column: 5
+        parser: yy/mm
+```

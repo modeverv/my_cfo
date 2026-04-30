@@ -9,6 +9,48 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from finance_core.config import load as load_config
+
+
+DEFAULT_CARD_CSV_CONFIG: dict[str, Any] = {
+    "default_inbox": "data/inbox/card",
+    "encodings": ["utf-8-sig", "utf-8", "cp932"],
+    "formats": [
+        {
+            "name": "format_a_filename_payment_month",
+            "detect": {"first_column_is_date": False},
+            "columns": {
+                "used_on": 0,
+                "merchant": 1,
+                "amount": 5,
+            },
+            "payment_month": {
+                "source": "filename",
+                "parser": "yyyymm",
+                "fallback": "current_month",
+            },
+        },
+        {
+            "name": "format_b_payment_month_column",
+            "detect": {"first_column_is_date": True},
+            "columns": {
+                "used_on": 0,
+                "merchant": 1,
+                "amount": [7, 6],
+            },
+            "payment_month": {
+                "source": "column",
+                "column": 5,
+                "parser": "yy/mm",
+            },
+        },
+    ],
+}
+
+
+class CsvConfigError(ValueError):
+    pass
+
 
 def _normalize(text: str) -> str:
     """全角英数字・記号を半角に統一して前後の空白を除去する"""
@@ -30,6 +72,12 @@ def _parse_payment_month_col(raw: str) -> str:
     return f"{year:04d}-{month:02d}"
 
 
+def _parse_yyyy_mm(raw: str) -> str:
+    raw = _normalize(raw).replace("/", "-")
+    parts = raw.split("-")
+    return f"{int(parts[0]):04d}-{int(parts[1]):02d}"
+
+
 def _looks_like_date(text: str) -> bool:
     return bool(re.match(r"^\d{4}/\d{1,2}/\d{1,2}$", text.strip()))
 
@@ -48,109 +96,142 @@ def _payment_month_from_filename(path: Path) -> str | None:
     return None
 
 
-# ---------------------------------------------------------------------------
-# Format A: Amazonマスター明細
-#   列: 利用日, 利用店名, 利用金額, 支払回数計, 今回回数, 今回支払額, 備考
-#   ヘッダー行あり（日付で始まらない行はスキップ）
-#   payment_month はファイル名から取得
-# ---------------------------------------------------------------------------
+def _project_path(raw_path: str) -> Path:
+    path = Path(raw_path)
+    if path.is_absolute():
+        return path
+    return Path(__file__).resolve().parents[2] / path
 
-def _parse_format_a(rows: list[list[str]], payment_month: str) -> list[dict[str, Any]]:
+
+def _card_csv_config() -> dict[str, Any]:
+    cfg = load_config().get("card_csv")
+    if cfg is None:
+        return DEFAULT_CARD_CSV_CONFIG
+    merged = DEFAULT_CARD_CSV_CONFIG | cfg
+    if "formats" not in cfg:
+        merged["formats"] = DEFAULT_CARD_CSV_CONFIG["formats"]
+    return merged
+
+
+def _decode_csv(raw: bytes, encodings: list[str]) -> str:
+    last_error: UnicodeDecodeError | None = None
+    for encoding in encodings:
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError as exc:
+            last_error = exc
+    if last_error is not None:
+        return raw.decode(encodings[-1], errors="replace")
+    return raw.decode("utf-8", errors="replace")
+
+
+def _cell(row: list[str], index: int) -> str:
+    if index >= len(row):
+        return ""
+    return row[index].strip()
+
+
+def _first_value(row: list[str], columns: int | list[int]) -> str:
+    candidates = columns if isinstance(columns, list) else [columns]
+    for col in candidates:
+        value = _cell(row, int(col))
+        if value:
+            return value
+    return ""
+
+
+def _parse_amount(raw: str) -> int:
+    normalized = _normalize(raw).replace(",", "").replace("円", "")
+    return int(normalized)
+
+
+def _parse_payment_month(raw: str, parser: str) -> str:
+    if parser == "yy/mm":
+        return _parse_payment_month_col(raw)
+    if parser == "yyyy-mm":
+        return _parse_yyyy_mm(raw)
+    raise CsvConfigError(f"未対応のpayment_month parserです: {parser}")
+
+
+def _payment_month_for_row(row: list[str], path: Path, spec: dict[str, Any]) -> str:
+    source = spec.get("source", "column")
+    parser = spec.get("parser", "yyyy-mm")
+    if source == "filename":
+        if parser != "yyyymm":
+            raise CsvConfigError(f"未対応のfilename payment_month parserです: {parser}")
+        payment_month = _payment_month_from_filename(path)
+        if payment_month:
+            return payment_month
+        if spec.get("fallback") == "current_month":
+            return datetime.today().strftime("%Y-%m")
+        raise ValueError(f"ファイル名から支払月を取得できません: {path.name}")
+    if source == "column":
+        column = int(spec["column"])
+        raw = _cell(row, column)
+        if not raw:
+            raise ValueError("支払月の列が空です")
+        return _parse_payment_month(raw, parser)
+    raise CsvConfigError(f"未対応のpayment_month sourceです: {source}")
+
+
+def _format_matches(rows: list[list[str]], fmt: dict[str, Any]) -> bool:
+    detect = fmt.get("detect", {})
+    if "first_column_is_date" not in detect:
+        return True
+    first_column_is_date = bool(rows and rows[0] and _looks_like_date(rows[0][0]))
+    return first_column_is_date == bool(detect["first_column_is_date"])
+
+
+def _detect_format(rows: list[list[str]], formats: list[dict[str, Any]]) -> dict[str, Any]:
+    for fmt in formats:
+        if _format_matches(rows, fmt):
+            return fmt
+    names = ", ".join(str(fmt.get("name", "(unnamed)")) for fmt in formats)
+    raise ValueError(f"対応するCSVフォーマットが見つかりません: {names}")
+
+
+def _parse_rows(rows: list[list[str]], path: Path, fmt: dict[str, Any]) -> list[dict[str, Any]]:
+    columns = fmt["columns"]
+    used_on_col = int(columns["used_on"])
     records = []
     for row in rows:
-        if len(row) < 6:
-            continue
-        if not _looks_like_date(row[0]):
-            continue
-        amount_raw = row[5].strip()
-        if not amount_raw:
+        if not _looks_like_date(_cell(row, used_on_col)):
             continue
         try:
-            amount = int(amount_raw)
-        except ValueError:
+            amount_raw = _first_value(row, columns["amount"])
+            if not amount_raw:
+                continue
+            records.append({
+                "used_on": _parse_date(_cell(row, used_on_col)),
+                "merchant": _normalize(_cell(row, int(columns["merchant"]))),
+                "amount": _parse_amount(amount_raw),
+                "payment_month": _payment_month_for_row(row, path, fmt["payment_month"]),
+            })
+        except CsvConfigError:
+            raise
+        except (ValueError, IndexError, KeyError):
             continue
-        records.append({
-            "used_on": _parse_date(row[0]),
-            "merchant": _normalize(row[1]),
-            "amount": amount,
-            "payment_month": payment_month,
-        })
     return records
-
-
-# ---------------------------------------------------------------------------
-# Format B: 別カード明細
-#   列: 利用日, 利用店名, 名義, 支払方法, 分割情報, 支払月, 利用金額, 今回支払額, ...
-#   ヘッダー行なし
-#   payment_month は col[5] から取得
-# ---------------------------------------------------------------------------
-
-def _parse_format_b(rows: list[list[str]]) -> list[dict[str, Any]]:
-    records = []
-    for row in rows:
-        if len(row) < 7:
-            continue
-        if not _looks_like_date(row[0]):
-            continue
-        payment_month_raw = row[5].strip()
-        if not payment_month_raw:
-            continue
-        try:
-            payment_month = _parse_payment_month_col(payment_month_raw)
-        except (ValueError, IndexError):
-            continue
-
-        # 今回支払額(col[7])が空の場合は利用金額(col[6])を使う（外貨決済など）
-        amount_raw = row[7].strip() if len(row) > 7 else ""
-        if not amount_raw:
-            amount_raw = row[6].strip()
-        try:
-            amount = int(amount_raw)
-        except ValueError:
-            continue
-
-        records.append({
-            "used_on": _parse_date(row[0]),
-            "merchant": _normalize(row[1]),
-            "amount": amount,
-            "payment_month": payment_month,
-        })
-    return records
-
-
-def _detect_format(rows: list[list[str]]) -> str:
-    """先頭行の第0列が日付かどうかでフォーマットを判定"""
-    if rows and _looks_like_date(rows[0][0]):
-        return "B"
-    return "A"
 
 
 def parse_csv(path: Path) -> list[dict[str, Any]]:
     raw = path.read_bytes()
-    try:
-        text = raw.decode("cp932")
-    except UnicodeDecodeError:
-        text = raw.decode("utf-8", errors="replace")
+    cfg = _card_csv_config()
+    text = _decode_csv(raw, list(cfg.get("encodings", ["cp932", "utf-8"])))
 
     reader = csv.reader(text.splitlines())
     rows = list(reader)
 
-    fmt = _detect_format(rows)
-    if fmt == "A":
-        payment_month = _payment_month_from_filename(path) or datetime.today().strftime("%Y-%m")
-        return _parse_format_a(rows, payment_month)
-    else:
-        return _parse_format_b(rows)
-
-
-DEFAULT_INBOX = Path(__file__).resolve().parents[2] / "data" / "inbox" / "card"
+    fmt = _detect_format(rows, list(cfg.get("formats", [])))
+    return _parse_rows(rows, path, fmt)
 
 
 def import_directory(
     conn: sqlite3.Connection, directory: Path | None = None
 ) -> dict[str, Any]:
     """ディレクトリ内の全CSVを走査して取り込む。重複はスキップ"""
-    target = Path(directory) if directory else DEFAULT_INBOX
+    cfg = _card_csv_config()
+    target = Path(directory) if directory else _project_path(str(cfg.get("default_inbox", "data/inbox/card")))
     csv_files = sorted(target.glob("*.csv"))
     if not csv_files:
         return {"imported": 0, "skipped": 0, "errors": [], "files": 0}

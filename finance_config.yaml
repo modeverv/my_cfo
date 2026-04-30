@@ -1,4 +1,36 @@
 llm:
   base_url: http://localhost:1234/v1
   model: gemma-4-e2b-it-mlx
-  
+
+card_csv:
+  default_inbox: data/inbox/card
+  encodings:
+    - utf-8-sig
+    - utf-8
+    - cp932
+  formats:
+    - name: format_a_filename_payment_month
+      detect:
+        first_column_is_date: false
+      columns:
+        used_on: 0
+        merchant: 1
+        amount: 5
+      payment_month:
+        source: filename
+        parser: yyyymm
+        fallback: current_month
+
+    - name: format_b_payment_month_column
+      detect:
+        first_column_is_date: true
+      columns:
+        used_on: 0
+        merchant: 1
+        amount:
+          - 7
+          - 6
+      payment_month:
+        source: column
+        column: 5
+        parser: yy/mm
