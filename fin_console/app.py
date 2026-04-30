@@ -56,14 +56,15 @@ class SidePane(RichLog):
 
         self.write("[bold #00ff66]── 高額カード決済 TOP5 ──[/bold #00ff66]")
         for t in card_summary["large_transactions"][:5]:
-            self.write(f"  [#007733]{t['used_on']}[/#007733]  {t['merchant'][:18]:<18}  [yellow]{t['amount']:>8,}円[/yellow]")
+            merchant = str(t["merchant"])[:18]
+            self.write(f"  [#007733]{t['used_on']}[/#007733]  {merchant:<18}  [yellow]{int(t['amount']):>8,}円[/yellow]")
 
         self.write("")
         self.write("[bold #00ff66]── 今月の現金支出 ──[/bold #00ff66]")
         if wallet_summary["large_cash_out"]:
             for w in wallet_summary["large_cash_out"][:5]:
-                desc = w["description"][:16] if w["description"] else "-"
-                self.write(f"  [#007733]{w['occurred_on']}[/#007733]  {desc:<16}  [yellow]{w['amount']:>8,}円[/yellow]")
+                desc = str(w["description"])[:16] if w["description"] else "-"
+                self.write(f"  [#007733]{w['occurred_on']}[/#007733]  {desc:<16}  [yellow]{int(w['amount']):>8,}円[/yellow]")
         else:
             self.write("  [dim]（記録なし）[/dim]")
 
@@ -71,8 +72,10 @@ class SidePane(RichLog):
         self.write("[bold #00ff66]── 最近の振替 ──[/bold #00ff66]")
         if transfers:
             for tr in transfers:
-                memo = f" [dim]{tr['memo']}[/dim]" if tr["memo"] else ""
-                self.write(f"  [#007733]{tr['occurred_on']}[/#007733]  [cyan]{tr['from_account']}→{tr['to_account']}[/cyan]  {tr['amount']:,}円{memo}")
+                memo = f" [dim]{str(tr['memo'])}[/dim]" if tr["memo"] else ""
+                from_acc = str(tr["from_account"])
+                to_acc   = str(tr["to_account"])
+                self.write(f"  [#007733]{tr['occurred_on']}[/#007733]  [cyan]{from_acc}→{to_acc}[/cyan]  {int(tr['amount']):,}円{memo}")
         else:
             self.write("  [dim]（記録なし）[/dim]")
 
@@ -80,6 +83,11 @@ class SidePane(RichLog):
 # ── メインアプリ ──────────────────────────────────────────
 
 class FinanceApp(App):
+    _MAIN_PANE  = "#main-pane"
+    _SIDE_PANE  = "#side-pane"
+    _CMD_INPUT  = "#cmd-input"
+    _STATUS_HDR = "#status-header"
+
     CSS = """
     /* ── レトログリーン基調 ── */
     Screen {
@@ -167,7 +175,7 @@ class FinanceApp(App):
     def on_mount(self) -> None:
         init_db(self.db_path)
         self._refresh_all()
-        self.query_one("#cmd-input", Input).focus()
+        self.query_one(self._CMD_INPUT, Input).focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         line = event.value.strip()
@@ -182,7 +190,7 @@ class FinanceApp(App):
     # ── コマンド実行 ─────────────────────────────────────
 
     def _run_command(self, command_line: str) -> None:
-        main_log = self.query_one("#main-pane", RichLog)
+        main_log = self.query_one(self._MAIN_PANE, RichLog)
         main_log.write(f"[bold #00ff66]fin>[/bold #00ff66] [#00cc44]{command_line}[/#00cc44]")
 
         # /ask は時間がかかるのでスレッドで実行
@@ -208,7 +216,7 @@ class FinanceApp(App):
         self._refresh_all()
 
     def _run_ask_thread(self, command_line: str) -> None:
-        main_log = self.query_one("#main-pane", RichLog)
+        main_log = self.query_one(self._MAIN_PANE, RichLog)
         try:
             from main import handle_command
             with connect(self.db_path) as conn:
@@ -220,8 +228,8 @@ class FinanceApp(App):
         self.call_from_thread(self._refresh_all)
 
     def _refresh_all(self) -> None:
-        self.query_one("#status-header", StatusHeader).refresh_stats(self.db_path)
-        self.query_one("#side-pane", SidePane).refresh_side(self.db_path)
+        self.query_one(self._STATUS_HDR, StatusHeader).refresh_stats(self.db_path)
+        self.query_one(self._SIDE_PANE, SidePane).refresh_side(self.db_path)
 
     # ── キーバインド ─────────────────────────────────────
 
@@ -240,7 +248,7 @@ class FinanceApp(App):
             "  /card [this_month|YYYY-MM] カード利用集計\n"
             "  /ask <質問>               LLMに分析を依頼\n"
         )
-        self.query_one("#main-pane", RichLog).write(help_text)
+        self.query_one(self._MAIN_PANE, RichLog).write(help_text)
 
     def action_cmd_now(self) -> None:
         self._run_command("/now")
@@ -252,16 +260,16 @@ class FinanceApp(App):
         self._run_command("/cash")
 
     def action_focus_atm(self) -> None:
-        inp = self.query_one("#cmd-input", Input)
+        inp = self.query_one(self._CMD_INPUT, Input)
         inp.value = "/atm "
         inp.focus()
-        inp.cursor_position = len(inp.value)
+        inp.cursor_position = len(inp.value)  # type: ignore[arg-type]
 
     def action_focus_ask(self) -> None:
-        inp = self.query_one("#cmd-input", Input)
+        inp = self.query_one(self._CMD_INPUT, Input)
         inp.value = "/ask "
         inp.focus()
-        inp.cursor_position = len(inp.value)
+        inp.cursor_position = len(inp.value)  # type: ignore[arg-type]
 
 
 def main(db_path: Path = DEFAULT_DB_PATH) -> None:

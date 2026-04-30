@@ -9,7 +9,9 @@
       "Bash(.venv/bin/pip install *)",
       "Bash(.venv/bin/pip freeze *)",
       "Bash(chmod +x /Users/seijiro/Sync/sync_work/me/my_cfo/cfo)",
-      "Bash(/Users/seijiro/Sync/sync_work/me/my_cfo/cfo /now)"
+      "Bash(/Users/seijiro/Sync/sync_work/me/my_cfo/cfo /now)",
+      "mcp__ide__getDiagnostics",
+      "Bash(.venv/bin/python *)"
     ]
   }
 }

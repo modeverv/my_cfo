@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import date
+from typing import Any
 
 from finance_core.services.snapshots import get_latest_snapshot
 
@@ -32,7 +33,7 @@ def previous_month(today: date | None = None) -> str:
     return f"{year:04d}-{month:02d}"
 
 
-def get_card_month_summary(conn: sqlite3.Connection, month: str) -> dict[str, object]:
+def get_card_month_summary(conn: sqlite3.Connection, month: str) -> dict[str, Any]:
     total = conn.execute(
         """
         SELECT COALESCE(SUM(amount), 0) AS total
@@ -83,7 +84,7 @@ def get_card_month_summary(conn: sqlite3.Connection, month: str) -> dict[str, ob
     }
 
 
-def get_wallet_month_summary(conn: sqlite3.Connection, month: str) -> dict[str, object]:
+def get_wallet_month_summary(conn: sqlite3.Connection, month: str) -> dict[str, Any]:
     cash_out_total = conn.execute(
         """
         SELECT COALESCE(SUM(amount), 0) AS total
@@ -120,7 +121,7 @@ def get_wallet_month_summary(conn: sqlite3.Connection, month: str) -> dict[str, 
     }
 
 
-def get_recent_transfers(conn: sqlite3.Connection, limit: int = 10) -> list[dict[str, object]]:
+def get_recent_transfers(conn: sqlite3.Connection, limit: int = 10) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
         SELECT occurred_on, from_account, to_account, amount, memo
