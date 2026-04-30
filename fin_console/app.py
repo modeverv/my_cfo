@@ -204,7 +204,7 @@ class FinanceApp(App):
             return
 
         try:
-            from main import handle_command
+            from finance_core.services.commands import handle_command
             with connect(self.db_path) as conn:
                 output = handle_command(conn, command_line)
                 conn.commit()
@@ -218,7 +218,7 @@ class FinanceApp(App):
     def _run_ask_thread(self, command_line: str) -> None:
         main_log = self.query_one(self._MAIN_PANE, RichLog)
         try:
-            from main import handle_command
+            from finance_core.services.commands import handle_command
             with connect(self.db_path) as conn:
                 output = handle_command(conn, command_line)
                 conn.commit()
