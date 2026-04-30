@@ -20,7 +20,7 @@ from finance_core.services.ask_context import (
     refresh_card_unbilled,
 )
 from finance_core.services.manual_snapshots import (
-    cash_in as core_cash_in,
+    cash_add as core_cash_add,
     cash_out as core_cash_out,
     set_bank_total,
     set_securities_total,
@@ -32,9 +32,10 @@ from finance_core.services.transfers import transfer as core_transfer
 
 SERVER_NAME = "personal-finance-console"
 SERVER_VERSION = "0.1.0"
-USAGE_IMAGE_URI = "finance://usage-image"
+USAGE_GUIDE_URI = "finance://usage-guide"
+LEGACY_USAGE_GUIDE_URI = "finance://usage-image"
 
-USAGE_IMAGE = """# Personal Finance Console MCP 使用イメージ
+USAGE_GUIDE_MARKDOWN = """# Personal Finance Console MCP 使用イメージ
 
 このMCPは、LLMにSQLiteや生データを直接触らせず、既存のfinance_coreを安全な道具として公開します。
 
@@ -76,10 +77,11 @@ LLM -> 返された集計済みコンテキストだけを根拠に回答
 SERVER_INSTRUCTIONS = """Personal Finance Console MCP.
 Use these tools through finance_core only. Never run arbitrary SQL.
 Do not confuse transfers with spending: bank -> wallet changes location only.
-Use the resource finance://usage-image for concrete usage examples.
+Use the resource finance://usage-guide for concrete usage examples.
 Use `finance.import_card` with no arguments to scan the configured default card CSV inbox.
 """
 
+MIME_MARKDOWN = "text/markdown"
 
 JsonDict = dict[str, Any]
 ToolFunc = Callable[[sqlite3.Connection, JsonDict], JsonDict]
@@ -89,12 +91,14 @@ def _ok(data: JsonDict | list[JsonDict]) -> JsonDict:
     return {"ok": True, "data": data}
 
 
-def _validate_amount(args: JsonDict, key: str = "amount") -> int:
+def _validate_amount(args: JsonDict, key: str = "amount", *, allow_zero: bool = True) -> int:
     raw = args.get(key)
     if not isinstance(raw, int):
         raise ValueError(f"{key} は整数で指定してください")
-    if raw < 0:
+    if allow_zero and raw < 0:
         raise ValueError(f"{key} は0以上で指定してください")
+    if not allow_zero and raw <= 0:
+        raise ValueError(f"{key} は1以上で指定してください")
     return raw
 
 
@@ -150,11 +154,11 @@ def finance_cash_set(conn: sqlite3.Connection, args: JsonDict) -> JsonDict:
 
 
 def finance_cash_in(conn: sqlite3.Connection, args: JsonDict) -> JsonDict:
-    return _ok({"snapshot": core_cash_in(conn, _validate_amount(args), _validate_memo(args, required=True))})
+    return _ok({"snapshot": core_cash_add(conn, _validate_amount(args, allow_zero=False), _validate_memo(args, required=True))})
 
 
 def finance_cash_out(conn: sqlite3.Connection, args: JsonDict) -> JsonDict:
-    return _ok({"snapshot": core_cash_out(conn, _validate_amount(args), _validate_memo(args, required=True))})
+    return _ok({"snapshot": core_cash_out(conn, _validate_amount(args, allow_zero=False), _validate_memo(args, required=True))})
 
 
 def finance_transfer(conn: sqlite3.Connection, args: JsonDict) -> JsonDict:
@@ -166,7 +170,7 @@ def finance_transfer(conn: sqlite3.Connection, args: JsonDict) -> JsonDict:
         conn,
         from_account,
         to_account,
-        _validate_amount(args),
+        _validate_amount(args, allow_zero=False),
         _validate_memo(args),
     )
     return _ok(result)
@@ -186,6 +190,7 @@ def finance_import_card(conn: sqlite3.Connection, args: JsonDict) -> JsonDict:
             output = {
                 "imported": result["imported"],
                 "skipped": result["skipped"],
+                "skipped_rows": result.get("skipped_rows", 0),
                 "files": 1,
                 "errors": [],
             }
@@ -267,7 +272,7 @@ TOOL_DEFINITIONS: list[JsonDict] = [
         "name": "finance.cash_in",
         "description": "財布に現金を入れる。",
         "inputSchema": _schema(
-            {"amount": {"type": "integer", "minimum": 0}, "memo": {"type": "string"}},
+            {"amount": {"type": "integer", "minimum": 1}, "memo": {"type": "string"}},
             ["amount", "memo"],
         ),
     },
@@ -275,18 +280,18 @@ TOOL_DEFINITIONS: list[JsonDict] = [
         "name": "finance.cash_out",
         "description": "財布から現金を使う。財布残高不足はエラー。",
         "inputSchema": _schema(
-            {"amount": {"type": "integer", "minimum": 0}, "memo": {"type": "string"}},
+            {"amount": {"type": "integer", "minimum": 1}, "memo": {"type": "string"}},
             ["amount", "memo"],
         ),
     },
     {
         "name": "finance.transfer",
-        "description": "振替を記録する。bank -> wallet は支出ではなく、wallet_transactionsにも入金として記録する。",
+        "description": "振替を記録する。bank -> wallet は支出ではなく、財布履歴とは分けてtransfersに記録する。",
         "inputSchema": _schema(
             {
                 "from_account": {"type": "string", "enum": ["bank", "wallet", "securities", "card"]},
                 "to_account": {"type": "string", "enum": ["bank", "wallet", "securities", "card"]},
-                "amount": {"type": "integer", "minimum": 0},
+                "amount": {"type": "integer", "minimum": 1},
                 "memo": {"type": "string"},
             },
             ["from_account", "to_account", "amount"],
@@ -294,8 +299,8 @@ TOOL_DEFINITIONS: list[JsonDict] = [
     },
     {
         "name": "finance.import_card",
-        "description": "デフォルト受信フォルダのクレカCSVを取り込む。引数なしで呼び出す。",
-        "inputSchema": _schema(),
+        "description": "クレカCSVを取り込む。path省略時はデフォルト受信フォルダを走査する。",
+        "inputSchema": _schema({"path": {"type": "string"}}),
     },
     {
         "name": "finance.build_context",
@@ -339,23 +344,29 @@ class FinanceMcpServer:
             return {
                 "resources": [
                     {
-                        "uri": USAGE_IMAGE_URI,
+                        "uri": USAGE_GUIDE_URI,
                         "name": "Personal Finance Console MCP 使用イメージ",
                         "description": "LLMから見たツール呼び出し例と重要ルール。",
-                        "mimeType": "text/markdown",
+                        "mimeType": MIME_MARKDOWN,
+                    },
+                    {
+                        "uri": LEGACY_USAGE_GUIDE_URI,
+                        "name": "Personal Finance Console MCP 使用イメージ (legacy)",
+                        "description": "finance://usage-guide の互換URI。",
+                        "mimeType": MIME_MARKDOWN,
                     }
                 ]
             }
         if method == "resources/read":
             uri = params.get("uri")
-            if uri != USAGE_IMAGE_URI:
+            if uri not in {USAGE_GUIDE_URI, LEGACY_USAGE_GUIDE_URI}:
                 raise ValueError(f"未知のresourceです: {uri}")
             return {
                 "contents": [
                     {
-                        "uri": USAGE_IMAGE_URI,
-                        "mimeType": "text/markdown",
-                        "text": USAGE_IMAGE,
+                        "uri": uri,
+                        "mimeType":MIME_MARKDOWN,
+                        "text": USAGE_GUIDE_MARKDOWN,
                     }
                 ]
             }

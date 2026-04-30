@@ -11,11 +11,13 @@ from finance_core.importers.credit_card_csv import import_csv, import_directory,
 from finance_core.services.ask_context import (
     build_finance_context,
     card_billing_month,
+    current_month,
     get_card_month_summary,
+    get_wallet_month_summary,
     refresh_card_unbilled,
 )
 from finance_core.services.commands import handle_command
-from finance_core.services.manual_snapshots import cash_in, cash_out, set_wallet_total
+from finance_core.services.manual_snapshots import cash_add, cash_out, set_wallet_total
 from finance_core.services.snapshots import calculate_total, get_latest_snapshot
 from finance_core.services.transfers import transfer
 from finance_mcp.server import FinanceMcpServer
@@ -58,10 +60,10 @@ class SnapshotTests(DatabaseTestCase):
 
 
 class WalletAndTransferTests(DatabaseTestCase):
-    def test_cash_in_and_cash_out_change_total_assets(self) -> None:
+    def test_cash_add_and_cash_out_change_total_assets(self) -> None:
         set_wallet_total(self.conn, 1_000)
 
-        after_in = cash_in(self.conn, 500, "refund")
+        after_in = cash_add(self.conn, 500, "refund")
         self.assertEqual(after_in["wallet_total"], 1_500)
         self.assertEqual(after_in["total_assets"], 1_500)
 
@@ -106,6 +108,56 @@ class WalletAndTransferTests(DatabaseTestCase):
 
         with self.assertRaises(ValueError):
             transfer(self.conn, "wallet", "bank", 1_001, "deposit")
+
+    def test_wallet_to_bank_transfer_is_not_cash_spending(self) -> None:
+        handle_command(self.conn, "/set-bank 10000")
+        handle_command(self.conn, "/cash-set 1000")
+
+        transfer(self.conn, "wallet", "bank", 500, "deposit")
+        summary = get_wallet_month_summary(self.conn, current_month())
+
+        self.assertEqual(summary["cash_out_total"], 0)
+        self.assertEqual(summary["large_cash_out"], [])
+
+    def test_failed_transfer_does_not_leave_transfer_row(self) -> None:
+        handle_command(self.conn, "/cash-set 1000")
+
+        with self.assertRaises(ValueError):
+            transfer(self.conn, "wallet", "bank", 1_001, "deposit")
+
+        count = self.conn.execute("SELECT COUNT(*) FROM transfers").fetchone()[0]
+        self.assertEqual(count, 0)
+
+    def test_transfer_rejects_insufficient_bank_balance(self) -> None:
+        handle_command(self.conn, "/set-bank 1000")
+        handle_command(self.conn, "/cash-set 1000")
+
+        with self.assertRaises(ValueError):
+            transfer(self.conn, "bank", "wallet", 1_001, "ATM")
+
+    def test_transfer_command_supports_generic_transfer(self) -> None:
+        handle_command(self.conn, "/set-bank 10000")
+        handle_command(self.conn, "/cash-set 1000")
+        before = get_latest_snapshot(self.conn)["total_assets"]
+
+        output = handle_command(self.conn, "/transfer bank wallet 3000 ATM")
+        after = get_latest_snapshot(self.conn)
+
+        self.assertIn("総資産は変わりません", output)
+        self.assertEqual(after["bank_total"], 7_000)
+        self.assertEqual(after["wallet_total"], 4_000)
+        self.assertEqual(after["total_assets"], before)
+
+    def test_delta_commands_reject_zero_amount(self) -> None:
+        for command in [
+            "/cash-in 0 memo",
+            "/cash-out 0 memo",
+            "/transfer bank wallet 0 memo",
+            "/atm 0 memo",
+        ]:
+            with self.subTest(command=command):
+                with self.assertRaises(ValueError):
+                    handle_command(self.conn, command)
 
 
 class CardSummaryTests(DatabaseTestCase):
@@ -171,9 +223,9 @@ class CreditCardCsvImportTests(DatabaseTestCase):
                 encoding="cp932",
             )
 
-            records = parse_csv(csv_path)
+            result = parse_csv(csv_path)
 
-        self.assertEqual(records, [
+        self.assertEqual(result["records"], [
             {
                 "used_on": "2026-04-01",
                 "merchant": "AMAZON",
@@ -181,6 +233,7 @@ class CreditCardCsvImportTests(DatabaseTestCase):
                 "payment_month": "2026-04",
             }
         ])
+        self.assertEqual(result["skipped_rows"], [])
 
     def test_parse_format_b_uses_payment_month_column_and_amount_fallback(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -191,9 +244,9 @@ class CreditCardCsvImportTests(DatabaseTestCase):
                 encoding="utf-8",
             )
 
-            records = parse_csv(csv_path)
+            result = parse_csv(csv_path)
 
-        self.assertEqual(records, [
+        self.assertEqual(result["records"], [
             {
                 "used_on": "2026-04-02",
                 "merchant": "コンビニ",
@@ -207,6 +260,34 @@ class CreditCardCsvImportTests(DatabaseTestCase):
                 "payment_month": "2026-05",
             },
         ])
+        self.assertEqual(result["skipped_rows"], [])
+
+    def test_parse_reports_broken_detail_rows(self) -> None:
+        with TemporaryDirectory() as tmp:
+            csv_path = Path(tmp) / "card.csv"
+            csv_path.write_text(
+                "2026/4/2,コンビニ,本人,一括,,'26/05,not-number,,\n"
+                "2026/4/3,スーパー,本人,一括,,'26/05,2000,1800,\n",
+                encoding="utf-8",
+            )
+
+            result = parse_csv(csv_path)
+
+        self.assertEqual(len(result["records"]), 1)
+        self.assertEqual(result["skipped_rows"][0]["line"], 1)
+
+    def test_parse_format_b_detects_after_header_row(self) -> None:
+        with TemporaryDirectory() as tmp:
+            csv_path = Path(tmp) / "card.csv"
+            csv_path.write_text(
+                "利用日,利用店名,利用者,支払方法,unused,支払月,利用金額,今回支払額\n"
+                "2026/4/2,コンビニ,本人,一括,,'26/05,500,,\n",
+                encoding="utf-8",
+            )
+
+            result = parse_csv(csv_path)
+
+        self.assertEqual(result["records"][0]["merchant"], "コンビニ")
 
     def test_import_csv_skips_duplicate_rows(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -238,7 +319,7 @@ class CreditCardCsvImportTests(DatabaseTestCase):
         with TemporaryDirectory() as tmp:
             result = import_directory(self.conn, Path(tmp))
 
-        self.assertEqual(result, {"imported": 0, "skipped": 0, "errors": [], "files": 0})
+        self.assertEqual(result, {"imported": 0, "skipped": 0, "errors": [], "files": 0, "skipped_rows": 0})
 
     def test_import_directory_reports_same_file_reimport_as_row_skips(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -261,6 +342,22 @@ class CreditCardCsvImportTests(DatabaseTestCase):
         self.assertEqual(second["imported"], 0)
         self.assertEqual(second["skipped"], 2)
         self.assertEqual(second["errors"], [])
+
+    def test_import_directory_reports_skipped_parse_rows(self) -> None:
+        with TemporaryDirectory() as tmp:
+            inbox = Path(tmp)
+            csv_path = inbox / "card.csv"
+            csv_path.write_text(
+                "2026/4/2,コンビニ,本人,一括,,'26/05,not-number,,\n"
+                "2026/4/3,スーパー,本人,一括,,'26/05,2000,1800,\n",
+                encoding="utf-8",
+            )
+
+            result = import_directory(self.conn, inbox)
+
+        self.assertEqual(result["imported"], 1)
+        self.assertEqual(result["skipped_rows"], 1)
+        self.assertIn("1行をスキップ", result["errors"][0])
 
 
 class McpServerTests(DatabaseTestCase):
@@ -296,16 +393,15 @@ class McpServerTests(DatabaseTestCase):
         import_tool = next(
             tool for tool in tools_response["result"]["tools"] if tool["name"] == "finance.import_card"
         )
-        self.assertEqual(import_tool["inputSchema"]["properties"], {})
+        self.assertEqual(import_tool["inputSchema"]["properties"], {"path": {"type": "string"}})
         self.assertEqual(import_tool["inputSchema"]["required"], [])
         self.assertNotIn("parameters", import_tool)
-        self.assertNotIn("path", json.dumps(import_tool, ensure_ascii=False))
 
         resource_response = self.server.handle({
             "jsonrpc": "2.0",
             "id": 2,
             "method": "resources/read",
-            "params": {"uri": "finance://usage-image"},
+            "params": {"uri": "finance://usage-guide"},
         })
         assert resource_response is not None
         usage = resource_response["result"]["contents"][0]["text"]
@@ -352,6 +448,24 @@ class McpServerTests(DatabaseTestCase):
         self.assertTrue(result["isError"])
         self.assertFalse(payload["ok"])
         self.assertIn("財布残高が不足しています", payload["error"])
+
+    def test_mcp_rejects_zero_delta_amount(self) -> None:
+        response = self.server.handle({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "finance.cash_in",
+                "arguments": {"amount": 0, "memo": "zero"},
+            },
+        })
+        assert response is not None
+        result = response["result"]
+        payload = json.loads(result["content"][0]["text"])
+
+        self.assertTrue(result["isError"])
+        self.assertFalse(payload["ok"])
+        self.assertIn("amount は1以上", payload["error"])
 
 
 if __name__ == "__main__":

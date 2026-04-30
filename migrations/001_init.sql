@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS wallet_transactions (
   occurred_on TEXT NOT NULL,
   direction TEXT NOT NULL CHECK (direction IN ('in', 'out', 'set')),
   amount INTEGER NOT NULL CHECK (amount >= 0),
+  balance_after INTEGER,
   description TEXT
 );
 

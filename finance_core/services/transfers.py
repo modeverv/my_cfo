@@ -38,8 +38,39 @@ def transfer(
     from_account = resolve_account(from_key)
     to_account = resolve_account(to_key)
 
+    if amount <= 0:
+        raise ValueError("振替金額は1円以上で指定してください")
     if from_account == to_account:
         raise ValueError("振替元と振替先が同じ口座です")
+
+    latest = get_latest_snapshot(conn)
+    snapshot_kwargs: dict[str, int] = {}
+
+    if from_account == "bank" and to_account == "wallet":
+        _ensure_sufficient_balance(latest["bank_total"], amount, "銀行残高")
+        snapshot_kwargs["bank_total"] = latest["bank_total"] - amount
+        snapshot_kwargs["wallet_total"] = latest["wallet_total"] + amount
+
+    elif from_account == "wallet" and to_account == "bank":
+        new_wallet = latest["wallet_total"] - amount
+        _ensure_sufficient_balance(latest["wallet_total"], amount, "財布残高")
+        snapshot_kwargs["wallet_total"] = new_wallet
+        snapshot_kwargs["bank_total"] = latest["bank_total"] + amount
+
+    elif from_account == "bank" and to_account == "securities":
+        _ensure_sufficient_balance(latest["bank_total"], amount, "銀行残高")
+        snapshot_kwargs["bank_total"] = latest["bank_total"] - amount
+        snapshot_kwargs["securities_total"] = latest["securities_total"] + amount
+
+    elif from_account == "securities" and to_account == "bank":
+        _ensure_sufficient_balance(latest["securities_total"], amount, "証券評価額")
+        snapshot_kwargs["securities_total"] = latest["securities_total"] - amount
+        snapshot_kwargs["bank_total"] = latest["bank_total"] + amount
+
+    else:
+        raise ValueError(
+            f"未対応の振替組み合わせです: {from_account} → {to_account}"
+        )
 
     cur = conn.execute(
         """
@@ -49,51 +80,11 @@ def transfer(
         (from_account, to_account, amount, memo),
     )
     transfer_id = cur.lastrowid
-
-    latest = get_latest_snapshot(conn)
-    snapshot_kwargs: dict[str, int] = {}
-
-    if from_account == "bank" and to_account == "wallet":
-        snapshot_kwargs["bank_total"] = latest["bank_total"] - amount
-        snapshot_kwargs["wallet_total"] = latest["wallet_total"] + amount
-        _insert_wallet_tx(conn, "in", amount, memo or f"transfer#{transfer_id}")
-
-    elif from_account == "wallet" and to_account == "bank":
-        new_wallet = latest["wallet_total"] - amount
-        if new_wallet < 0:
-            raise ValueError(f"財布残高が不足しています (現在: {latest['wallet_total']:,}円)")
-        snapshot_kwargs["wallet_total"] = new_wallet
-        snapshot_kwargs["bank_total"] = latest["bank_total"] + amount
-        _insert_wallet_tx(conn, "out", amount, memo or f"transfer#{transfer_id}")
-
-    elif from_account == "bank" and to_account == "securities":
-        snapshot_kwargs["bank_total"] = latest["bank_total"] - amount
-        snapshot_kwargs["securities_total"] = latest["securities_total"] + amount
-
-    elif from_account == "securities" and to_account == "bank":
-        snapshot_kwargs["securities_total"] = latest["securities_total"] - amount
-        snapshot_kwargs["bank_total"] = latest["bank_total"] + amount
-
-    else:
-        raise ValueError(
-            f"未対応の振替組み合わせです: {from_account} → {to_account}"
-        )
-
     transfer_memo = f"transfer {from_account}→{to_account}" + (f": {memo}" if memo else "")
     snapshot = insert_snapshot(conn, memo=transfer_memo, **snapshot_kwargs)
     return {"transfer_id": transfer_id, "snapshot": snapshot}
 
 
-def _insert_wallet_tx(
-    conn: sqlite3.Connection,
-    direction: str,
-    amount: int,
-    description: str,
-) -> None:
-    conn.execute(
-        """
-        INSERT INTO wallet_transactions (occurred_on, direction, amount, description)
-        VALUES (date('now', 'localtime'), ?, ?, ?)
-        """,
-        (direction, amount, description),
-    )
+def _ensure_sufficient_balance(current: int, amount: int, label: str) -> None:
+    if current - amount < 0:
+        raise ValueError(f"{label}が不足しています (現在: {current:,}円)")

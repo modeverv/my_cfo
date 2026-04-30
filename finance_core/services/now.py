@@ -37,7 +37,7 @@ def show_wallet(conn: sqlite3.Connection, limit: int = 10) -> str:
     snapshot = get_latest_snapshot(conn)
     rows = conn.execute(
         """
-        SELECT occurred_on, direction, amount, description
+        SELECT occurred_on, direction, amount, balance_after, description
         FROM wallet_transactions
         ORDER BY id DESC
         LIMIT ?
@@ -48,11 +48,15 @@ def show_wallet(conn: sqlite3.Connection, limit: int = 10) -> str:
     lines = [f"財布残高: {snapshot['wallet_total']:,}円", ""]
     if rows:
         lines.append("最近の取引:")
-        direction_label = {"in": "入金", "out": "支出", "set": "補正"}
+        direction_label = {"in": "資産増加", "out": "支出", "set": "補正後残高"}
         for row in rows:
             label = direction_label.get(row["direction"], row["direction"])
             desc = row["description"] or ""
-            lines.append(f"  {row['occurred_on']}  {label}  {row['amount']:>10,}円  {desc}")
+            if row["direction"] == "set" and row["balance_after"] is not None:
+                amount_text = f"{row['balance_after']:>10,}円"
+            else:
+                amount_text = f"{row['amount']:>10,}円"
+            lines.append(f"  {row['occurred_on']}  {label}  {amount_text}  {desc}")
     else:
         lines.append("取引履歴がありません")
 
@@ -64,7 +68,7 @@ def show_card(conn: sqlite3.Connection, month: str | None = None) -> str:
     summary = get_card_month_summary(conn, target)
 
     lines = [
-        f"カード利用 {target} — {summary['count']}件  計 {summary['total']:,}円",
+        f"カード利用 支払月:{target} — {summary['count']}件  計 {summary['total']:,}円",
         "",
         "加盟店別TOP10:",
     ]

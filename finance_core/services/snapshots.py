@@ -5,18 +5,6 @@ from datetime import date
 from typing import Any
 
 
-SNAPSHOT_COLUMNS = (
-    "id",
-    "as_of_date",
-    "bank_total",
-    "securities_total",
-    "wallet_total",
-    "credit_card_unbilled",
-    "total_assets",
-    "memo",
-)
-
-
 def row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
     if row is None:
         return None

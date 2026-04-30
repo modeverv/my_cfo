@@ -7,7 +7,7 @@ from typing import Any
 from finance_core.services.snapshots import get_latest_snapshot
 
 
-_PM = "COALESCE(payment_month, substr(used_on, 1, 7))"
+_CARD_PAYMENT_MONTH_EXPR = "COALESCE(payment_month, substr(used_on, 1, 7))"
 
 
 def current_month(today: date | None = None) -> str:
@@ -26,22 +26,12 @@ def card_billing_month(today: date | None = None) -> str:
     return f"{year:04d}-{month:02d}"
 
 
-def previous_month(today: date | None = None) -> str:
-    target = today or date.today()
-    year = target.year
-    month = target.month - 1
-    if month == 0:
-        year -= 1
-        month = 12
-    return f"{year:04d}-{month:02d}"
-
-
 def get_card_month_summary(conn: sqlite3.Connection, month: str) -> dict[str, Any]:
     agg = conn.execute(
         f"""
         SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total
         FROM card_transactions
-        WHERE {_PM} = ?
+        WHERE {_CARD_PAYMENT_MONTH_EXPR} = ?
         """,
         (month,),
     ).fetchone()
@@ -50,7 +40,7 @@ def get_card_month_summary(conn: sqlite3.Connection, month: str) -> dict[str, An
         f"""
         SELECT merchant, SUM(amount) AS total
         FROM card_transactions
-        WHERE {_PM} = ?
+        WHERE {_CARD_PAYMENT_MONTH_EXPR} = ?
         GROUP BY merchant
         ORDER BY total DESC
         LIMIT 10
@@ -62,7 +52,7 @@ def get_card_month_summary(conn: sqlite3.Connection, month: str) -> dict[str, An
         f"""
         SELECT used_on, merchant, amount
         FROM card_transactions
-        WHERE {_PM} = ?
+        WHERE {_CARD_PAYMENT_MONTH_EXPR} = ?
         ORDER BY amount DESC, used_on DESC
         LIMIT 10
         """,
@@ -155,7 +145,7 @@ def refresh_card_unbilled(conn: sqlite3.Connection, month: str | None = None) ->
         f"""
         SELECT COALESCE(SUM(amount), 0) AS total
         FROM card_transactions
-        WHERE {_PM} = ?
+        WHERE {_CARD_PAYMENT_MONTH_EXPR} = ?
         """,
         (target,),
     ).fetchone()["total"]
@@ -163,34 +153,34 @@ def refresh_card_unbilled(conn: sqlite3.Connection, month: str | None = None) ->
 
 
 def build_finance_context(conn: sqlite3.Connection, question: str) -> str:
-    now = get_latest_snapshot(conn)
+    latest_snapshot = get_latest_snapshot(conn)
     usage_month = current_month()        # 今月の利用月（財布支出集計に使う）
     billing_month = card_billing_month() # 今月利用分の引き落とし月（翌月）
-    prev_billing = usage_month           # 翌月の前月 = 今月
-    card_this = get_card_month_summary(conn, billing_month)
-    card_prev = get_card_month_summary(conn, prev_billing)
-    wallet = get_wallet_month_summary(conn, usage_month)
+    prev_billing = usage_month           # 前月利用分の引き落とし月（今月）
+    usage_month_wallet_summary = get_wallet_month_summary(conn, usage_month)
+    usage_month_card_summary = get_card_month_summary(conn, billing_month)
+    previous_billing_card_summary = get_card_month_summary(conn, prev_billing)
     transfers = get_recent_transfers(conn)
 
     return f"""## 現在の資産状況
-総資産: {now['total_assets']}円
-銀行残高: {now['bank_total']}円
-証券評価額: {now['securities_total']}円
-財布残高: {now['wallet_total']}円
-カード未払い/今月利用: {now['credit_card_unbilled']}円
+総資産: {latest_snapshot['total_assets']}円
+銀行残高: {latest_snapshot['bank_total']}円
+証券評価額: {latest_snapshot['securities_total']}円
+財布残高: {latest_snapshot['wallet_total']}円
+カード未払い/今月利用: {latest_snapshot['credit_card_unbilled']}円
 
-## 今月のカード利用（引き落とし月: {billing_month}）
-合計: {card_this['total']}円
-加盟店別: {card_this['by_merchant']}
-高額決済: {card_this['large_transactions']}
+## 今月のカード利用（利用月: {usage_month} / 支払月: {billing_month}）
+合計: {usage_month_card_summary['total']}円
+加盟店別: {usage_month_card_summary['by_merchant']}
+高額決済: {usage_month_card_summary['large_transactions']}
 
-## 前月比較（引き落とし月: {prev_billing}）
-前月カード合計: {card_prev['total']}円
-差額: {int(card_this['total']) - int(card_prev['total'])}円
+## 前月比較（支払月: {prev_billing}）
+前月カード合計: {previous_billing_card_summary['total']}円
+差額: {int(usage_month_card_summary['total']) - int(previous_billing_card_summary['total'])}円
 
 ## 今月の現金支出（{usage_month}）
-財布支出合計: {wallet['cash_out_total']}円
-主な現金支出: {wallet['large_cash_out']}
+財布支出合計: {usage_month_wallet_summary['cash_out_total']}円
+主な現金支出: {usage_month_wallet_summary['large_cash_out']}
 
 ## 最近の振替
 {transfers}

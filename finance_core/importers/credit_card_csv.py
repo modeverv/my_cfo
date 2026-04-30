@@ -52,6 +52,9 @@ class CsvConfigError(ValueError):
     pass
 
 
+ParseResult = dict[str, Any]
+
+
 def _normalize(text: str) -> str:
     """全角英数字・記号を半角に統一して前後の空白を除去する"""
     return unicodedata.normalize("NFKC", text).strip()
@@ -174,33 +177,84 @@ def _payment_month_for_row(row: list[str], path: Path, spec: dict[str, Any]) -> 
     raise CsvConfigError(f"未対応のpayment_month sourceです: {source}")
 
 
+def _first_data_row_index(rows: list[list[str]], used_on_col: int = 0, scan_limit: int = 20) -> int | None:
+    for idx, row in enumerate(rows[:scan_limit]):
+        if _looks_like_date(_cell(row, used_on_col)):
+            return idx
+    return None
+
+
 def _format_matches(rows: list[list[str]], fmt: dict[str, Any]) -> bool:
     detect = fmt.get("detect", {})
     if "first_column_is_date" not in detect:
         return True
-    first_column_is_date = bool(rows and rows[0] and _looks_like_date(rows[0][0]))
-    return first_column_is_date == bool(detect["first_column_is_date"])
+    columns = fmt.get("columns", {})
+    used_on_col = int(columns.get("used_on", 0))
+    if "header_rows" in detect:
+        data_row_idx = int(detect["header_rows"])
+        if data_row_idx >= len(rows):
+            return False
+        first_column_is_date = _looks_like_date(_cell(rows[data_row_idx], used_on_col))
+        return first_column_is_date == bool(detect["first_column_is_date"])
+    if bool(detect["first_column_is_date"]):
+        return _first_data_row_index(rows, used_on_col) is not None
+    else:
+        data_row_idx = 0
+        if data_row_idx >= len(rows):
+            return False
+        return not _looks_like_date(_cell(rows[data_row_idx], used_on_col))
+
+
+def _format_score(rows: list[list[str]], fmt: dict[str, Any]) -> int:
+    columns = fmt.get("columns", {})
+    if not columns:
+        return 0
+    used_on_col = int(columns.get("used_on", 0))
+    merchant_col = int(columns.get("merchant", 1))
+    amount_cols = columns.get("amount", 0)
+    score = 0
+    for row in rows[:50]:
+        if not _looks_like_date(_cell(row, used_on_col)):
+            continue
+        if not _cell(row, merchant_col):
+            continue
+        amount_raw = _first_value(row, amount_cols)
+        if not amount_raw:
+            continue
+        try:
+            _parse_amount(amount_raw)
+            if fmt.get("payment_month", {}).get("source") == "column":
+                _payment_month_for_row(row, Path("detect.csv"), fmt["payment_month"])
+        except (ValueError, IndexError, KeyError):
+            continue
+        else:
+            score += 1
+    return score
 
 
 def _detect_format(rows: list[list[str]], formats: list[dict[str, Any]]) -> dict[str, Any]:
-    for fmt in formats:
-        if _format_matches(rows, fmt):
-            return fmt
+    matches = [(fmt, _format_score(rows, fmt)) for fmt in formats if _format_matches(rows, fmt)]
+    matches = [item for item in matches if item[1] > 0]
+    if matches:
+        return max(matches, key=lambda item: item[1])[0]
     names = ", ".join(str(fmt.get("name", "(unnamed)")) for fmt in formats)
-    raise ValueError(f"対応するCSVフォーマットが見つかりません: {names}")
+    first_data_row = _first_data_row_index(rows)
+    row_hint = "なし" if first_data_row is None else str(first_data_row + 1)
+    raise ValueError(f"対応するCSVフォーマットが見つかりません: {names} (日付行: {row_hint})")
 
 
-def _parse_rows(rows: list[list[str]], path: Path, fmt: dict[str, Any]) -> list[dict[str, Any]]:
+def _parse_rows(rows: list[list[str]], path: Path, fmt: dict[str, Any]) -> ParseResult:
     columns = fmt["columns"]
     used_on_col = int(columns["used_on"])
-    records = []
-    for row in rows:
+    records: list[dict[str, Any]] = []
+    skipped_rows: list[dict[str, Any]] = []
+    for line_no, row in enumerate(rows, start=1):
         if not _looks_like_date(_cell(row, used_on_col)):
             continue
         try:
             amount_raw = _first_value(row, columns["amount"])
             if not amount_raw:
-                continue
+                raise ValueError("金額列が空です")
             records.append({
                 "used_on": _parse_date(_cell(row, used_on_col)),
                 "merchant": _normalize(_cell(row, int(columns["merchant"]))),
@@ -209,12 +263,16 @@ def _parse_rows(rows: list[list[str]], path: Path, fmt: dict[str, Any]) -> list[
             })
         except CsvConfigError:
             raise
-        except (ValueError, IndexError, KeyError):
-            continue
-    return records
+        except (ValueError, IndexError, KeyError) as exc:
+            skipped_rows.append({
+                "line": line_no,
+                "reason": str(exc),
+                "row": row,
+            })
+    return {"records": records, "skipped_rows": skipped_rows}
 
 
-def parse_csv(path: Path) -> list[dict[str, Any]]:
+def parse_csv(path: Path) -> ParseResult:
     raw = path.read_bytes()
     cfg = _card_csv_config()
     text = _decode_csv(raw, list(cfg.get("encodings", ["cp932", "utf-8"])))
@@ -250,10 +308,11 @@ def import_directory(
     target = Path(directory) if directory else _project_path(str(cfg.get("default_inbox", "data/inbox/card")))
     csv_files = sorted(target.glob("*.csv"))
     if not csv_files:
-        return {"imported": 0, "skipped": 0, "errors": [], "files": 0}
+        return {"imported": 0, "skipped": 0, "errors": [], "files": 0, "skipped_rows": 0}
 
     total_imported = 0
     skipped = 0
+    skipped_rows = 0
     errors: list[str] = []
 
     for csv_path in csv_files:
@@ -261,6 +320,9 @@ def import_directory(
             result = import_csv(conn, csv_path)
             total_imported += result["imported"]
             skipped += result["skipped"]
+            skipped_rows += result.get("skipped_rows", 0)
+            if result.get("skipped_rows", 0):
+                errors.append(f"{csv_path.name}: {result['skipped_rows']}行をスキップ")
         except Exception as exc:
             errors.append(f"{csv_path.name}: {exc}")
 
@@ -269,6 +331,7 @@ def import_directory(
         "skipped": skipped,
         "errors": errors,
         "files": len(csv_files),
+        "skipped_rows": skipped_rows,
     }
 
 
@@ -299,8 +362,14 @@ def import_csv(conn: sqlite3.Connection, path: Path) -> dict[str, int]:
         "SELECT id, status FROM imports WHERE file_hash = ?", (fhash,)
     ).fetchone()
     if existing:
-        imported, skipped = _insert_records(conn, parse_csv(path))
-        return {"imported": imported, "skipped": skipped, "import_id": existing["id"]}
+        parsed = parse_csv(path)
+        imported, skipped = _insert_records(conn, parsed["records"])
+        return {
+            "imported": imported,
+            "skipped": skipped,
+            "skipped_rows": len(parsed["skipped_rows"]),
+            "import_id": existing["id"],
+        }
 
     import_id = conn.execute(
         """
@@ -311,7 +380,8 @@ def import_csv(conn: sqlite3.Connection, path: Path) -> dict[str, int]:
     ).lastrowid
 
     try:
-        imported, skipped = _insert_records(conn, parse_csv(path))
+        parsed = parse_csv(path)
+        imported, skipped = _insert_records(conn, parsed["records"])
         conn.execute(
             """
             UPDATE imports
@@ -327,4 +397,9 @@ def import_csv(conn: sqlite3.Connection, path: Path) -> dict[str, int]:
         )
         raise
 
-    return {"imported": imported, "skipped": skipped, "import_id": import_id}
+    return {
+        "imported": imported,
+        "skipped": skipped,
+        "skipped_rows": len(parsed["skipped_rows"]),
+        "import_id": import_id,
+    }

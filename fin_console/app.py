@@ -19,7 +19,7 @@ from finance_core.services.ask_context import (
     get_recent_transfers,
     get_wallet_month_summary,
 )
-from finance_core.services.commands import handle_command
+from finance_core.services.commands import run_command
 from finance_core.services.snapshots import get_latest_snapshot
 
 
@@ -80,10 +80,10 @@ class SidePane(RichLog):
 # ── メインアプリ ──────────────────────────────────────────
 
 class FinanceApp(App):
-    _MAIN_PANE  = "#main-pane"
-    _SIDE_PANE  = "#side-pane"
-    _CMD_INPUT  = "#cmd-input"
-    _STATUS_HDR = "#status-header"
+    MAIN_PANE_SELECTOR = "#main-pane"
+    SIDE_PANE_SELECTOR = "#side-pane"
+    CMD_INPUT_SELECTOR = "#cmd-input"
+    STATUS_HEADER_SELECTOR = "#status-header"
 
     CSS = """
     /* ── レトログリーン基調 ── */
@@ -172,7 +172,7 @@ class FinanceApp(App):
     def on_mount(self) -> None:
         init_db(self.db_path)
         self._refresh_all()
-        self.query_one(self._CMD_INPUT, Input).focus()
+        self.query_one(self.CMD_INPUT_SELECTOR, Input).focus()
 
     # ── 入力処理 ─────────────────────────────────────────
 
@@ -184,7 +184,7 @@ class FinanceApp(App):
         if line in {"q", "quit", "exit"}:
             self.exit()
             return
-        main_log = self.query_one(self._MAIN_PANE, RichLog)
+        main_log = self.query_one(self.MAIN_PANE_SELECTOR, RichLog)
         main_log.write(f"[bold #00ff66]fin>[/bold #00ff66] [#00cc44]{line}[/#00cc44]")
         if line.startswith("/ask"):
             self._dispatch_ask(line)
@@ -194,11 +194,9 @@ class FinanceApp(App):
     # ── コマンド実行 ──────────────────────────────────────
 
     def _execute(self, command_line: str) -> None:
-        main_log = self.query_one(self._MAIN_PANE, RichLog)
+        main_log = self.query_one(self.MAIN_PANE_SELECTOR, RichLog)
         try:
-            with connect(self.db_path) as conn:
-                output = handle_command(conn, command_line)
-                conn.commit()
+            output = run_command(self.db_path, command_line)
             if output:
                 main_log.write(output)
         except Exception as exc:
@@ -208,15 +206,13 @@ class FinanceApp(App):
     # ── /ask 非同期処理 ───────────────────────────────────
 
     def _dispatch_ask(self, command_line: str) -> None:
-        self.query_one(self._MAIN_PANE, RichLog).write("[dim]LLMに問い合わせ中です、お待ちください...[/dim]")
+        self.query_one(self.MAIN_PANE_SELECTOR, RichLog).write("[dim]LLMに問い合わせ中です、お待ちください...[/dim]")
         threading.Thread(target=self._ask_worker, args=(command_line,), daemon=True).start()
 
     def _ask_worker(self, command_line: str) -> None:
-        main_log = self.query_one(self._MAIN_PANE, RichLog)
+        main_log = self.query_one(self.MAIN_PANE_SELECTOR, RichLog)
         try:
-            with connect(self.db_path) as conn:
-                output = handle_command(conn, command_line)
-                conn.commit()
+            output = run_command(self.db_path, command_line)
             self.call_from_thread(main_log.write, output or "")
         except Exception as exc:
             self.call_from_thread(main_log.write, f"[red]ERROR: {exc}[/red]")
@@ -231,8 +227,8 @@ class FinanceApp(App):
             wallet_summary  = get_wallet_month_summary(conn, current_month())
             transfers       = get_recent_transfers(conn, limit=5)
 
-        self.query_one(self._STATUS_HDR, StatusHeader).update_stats(snap)
-        self.query_one(self._SIDE_PANE, SidePane).update_side(card_summary, wallet_summary, transfers)
+        self.query_one(self.STATUS_HEADER_SELECTOR, StatusHeader).update_stats(snap)
+        self.query_one(self.SIDE_PANE_SELECTOR, SidePane).update_side(card_summary, wallet_summary, transfers)
 
     # ── キーバインド ─────────────────────────────────────
 
@@ -240,25 +236,25 @@ class FinanceApp(App):
         self._execute("/help")
 
     def action_cmd_now(self) -> None:
-        self.query_one(self._CMD_INPUT, Input).clear()
+        self.query_one(self.CMD_INPUT_SELECTOR, Input).clear()
         self._execute("/now")
 
     def action_cmd_card(self) -> None:
-        self.query_one(self._CMD_INPUT, Input).clear()
+        self.query_one(self.CMD_INPUT_SELECTOR, Input).clear()
         self._execute("/card this_month")
 
     def action_cmd_cash(self) -> None:
-        self.query_one(self._CMD_INPUT, Input).clear()
+        self.query_one(self.CMD_INPUT_SELECTOR, Input).clear()
         self._execute("/cash")
 
     def action_focus_atm(self) -> None:
-        inp = self.query_one(self._CMD_INPUT, Input)
+        inp = self.query_one(self.CMD_INPUT_SELECTOR, Input)
         inp.value = "/atm "
         inp.focus()
         inp.cursor_position = len(inp.value)  # type: ignore[arg-type]
 
     def action_focus_ask(self) -> None:
-        inp = self.query_one(self._CMD_INPUT, Input)
+        inp = self.query_one(self.CMD_INPUT_SELECTOR, Input)
         inp.value = "/ask "
         inp.focus()
         inp.cursor_position = len(inp.value)  # type: ignore[arg-type]

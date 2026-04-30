@@ -248,7 +248,7 @@ MCP はこの上に薄く乗せる。
 
 ```text
 - 振替は支出ではない
-- bank → wallet は wallet_transactions にも記録する
+- bank → wallet は支出ではない。財布履歴には混ぜず、transfers で記録する
 - wallet → bank は財布残高不足ならエラー
 ```
 
@@ -448,4 +448,3 @@ LLM → そのコンテキストを使って回答生成
 LLM に何でもやらせるのではなく、
 安全な道具を渡して扱わせる。
 ```
-

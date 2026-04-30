@@ -15,39 +15,49 @@ def set_securities_total(conn: sqlite3.Connection, amount: int) -> dict[str, Any
 
 
 def set_wallet_total(conn: sqlite3.Connection, amount: int) -> dict[str, Any]:
+    latest = get_latest_snapshot(conn)
+    description = f"cash-set: {latest['wallet_total']:,}円 -> {amount:,}円"
     conn.execute(
         """
-        INSERT INTO wallet_transactions (occurred_on, direction, amount, description)
-        VALUES (date('now', 'localtime'), 'set', ?, ?)
+        INSERT INTO wallet_transactions (occurred_on, direction, amount, balance_after, description)
+        VALUES (date('now', 'localtime'), 'set', ?, ?, ?)
         """,
-        (amount, "cash-set"),
+        (amount, amount, description),
     )
     return insert_snapshot(conn, wallet_total=amount, memo="cash-set")
 
 
-def cash_in(conn: sqlite3.Connection, amount: int, memo: str) -> dict[str, Any]:
+def cash_add(conn: sqlite3.Connection, amount: int, memo: str) -> dict[str, Any]:
+    if amount <= 0:
+        raise ValueError("現金追加額は1円以上で指定してください")
     latest = get_latest_snapshot(conn)
     new_wallet = latest["wallet_total"] + amount
     conn.execute(
         """
-        INSERT INTO wallet_transactions (occurred_on, direction, amount, description)
-        VALUES (date('now', 'localtime'), 'in', ?, ?)
+        INSERT INTO wallet_transactions (occurred_on, direction, amount, balance_after, description)
+        VALUES (date('now', 'localtime'), 'in', ?, ?, ?)
         """,
-        (amount, memo),
+        (amount, new_wallet, memo),
     )
     return insert_snapshot(conn, wallet_total=new_wallet, memo=f"cash-in: {memo}")
 
 
+def cash_in(conn: sqlite3.Connection, amount: int, memo: str) -> dict[str, Any]:
+    return cash_add(conn, amount, memo)
+
+
 def cash_out(conn: sqlite3.Connection, amount: int, memo: str) -> dict[str, Any]:
+    if amount <= 0:
+        raise ValueError("支出額は1円以上で指定してください")
     latest = get_latest_snapshot(conn)
     new_wallet = latest["wallet_total"] - amount
     if new_wallet < 0:
         raise ValueError(f"財布残高が不足しています (現在: {latest['wallet_total']:,}円)")
     conn.execute(
         """
-        INSERT INTO wallet_transactions (occurred_on, direction, amount, description)
-        VALUES (date('now', 'localtime'), 'out', ?, ?)
+        INSERT INTO wallet_transactions (occurred_on, direction, amount, balance_after, description)
+        VALUES (date('now', 'localtime'), 'out', ?, ?, ?)
         """,
-        (amount, memo),
+        (amount, new_wallet, memo),
     )
     return insert_snapshot(conn, wallet_total=new_wallet, memo=f"cash-out: {memo}")

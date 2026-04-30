@@ -63,13 +63,15 @@ make mcp       # MCP stdio サーバー
 | `/cash-out <amount> <memo>` | 財布から支出 |
 | `/cash` | 財布の取引履歴を表示 |
 | `/atm <amount> [memo]` | 銀行→財布へATM引き出し（総資産は変わらない） |
+| `/transfer <from> <to> <amount> [memo]` | 振替を記録（総資産は変わらない） |
 
 ### クレカ
 
 | コマンド | 説明 |
 |---------|------|
-| `/import [dir]` | `data/inbox/card/` の CSV を一括取り込み（重複スキップ） |
-| `/card [this_month\|YYYY-MM]` | カード利用集計を表示 |
+| `/import-card [path]` | カードCSVを取り込み（省略時は `data/inbox/card/` を走査） |
+| `/import [path]` | `/import-card` の別名 |
+| `/card [this_month\|YYYY-MM]` | カード利用集計を表示（`this_month` は支払月ベース） |
 
 ### LLM 分析
 
@@ -142,7 +144,7 @@ MCPクライアント設定例:
 | `finance.import_card` | クレカCSVを取り込み |
 | `finance.build_context` | `/ask` 用の集計済みコンテキストを生成 |
 
-MCP resource として `finance://usage-image` も公開している。LLMから見た呼び出し例、総資産の定義、振替を支出扱いしない注意点を埋め込んである。
+MCP resource として `finance://usage-guide` も公開している。LLMから見た呼び出し例、総資産の定義、振替を支出扱いしない注意点を埋め込んである。旧URI `finance://usage-image` も互換用に読める。
 
 追記: `finance.import_card` は `path` 引数を省略して呼べます。引数無しの場合は `finance_core` の設定で指定されたデフォルトの受信フォルダ（`data/inbox/card` 等）を走査し、ディレクトリ内の CSV をまとめて取り込みます。個別ファイルを指定したい場合は `path` にファイルパスを与えてください。
 
@@ -203,24 +205,46 @@ my_cfo/
 ├── finance_config.yaml        # LLM 接続設定
 ├── requirements.txt
 ├── Makefile
+├── README.md
 ├── finance_core/
+│   ├── __init__.py
 │   ├── config.py
 │   ├── db.py
+│   ├── display.py             # 表示幅調整などの共通表示ヘルパー
 │   ├── llm.py
 │   ├── importers/
+│   │   ├── __init__.py
 │   │   └── credit_card_csv.py
 │   └── services/
-│       ├── snapshots.py
+│       ├── __init__.py
+│       ├── ask_context.py
+│       ├── commands.py        # CLI/TUI共通コマンドディスパッチ
 │       ├── manual_snapshots.py
-│       ├── transfers.py
 │       ├── now.py
-│       └── ask_context.py
+│       ├── snapshots.py
+│       └── transfers.py
 ├── fin_console/
+│   ├── __init__.py
 │   └── app.py                 # Textual TUI
+├── finance_mcp/
+│   ├── __init__.py
+│   └── server.py              # MCP stdio サーバー
 ├── migrations/
 │   └── 001_init.sql
-└── data/
-    └── inbox/card/            # CSV をここに置いて /import
+├── tests/
+│   ├── __init__.py
+│   └── test_finance_core.py
+├── scripts/
+│   ├── mcp_client.py
+│   └── mcp_list_tools.py
+├── docs/
+│   └── tui-sample.svg
+├── data/
+│   └── inbox/card/            # カードCSV配置先（必要に応じて作成）
+└── dev/
+    ├── demo.html
+    ├── spec.md
+    └── spec_mcp.md
 ```
 
 ---

@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 
 from finance_core.db import DEFAULT_DB_PATH, connect, init_db
-from finance_core.services.commands import handle_command
+from finance_core.services.commands import handle_command, run_command
 
 
 def repl(db_path: Path) -> None:
@@ -46,14 +46,11 @@ def main() -> None:
         return
 
     command_line = " ".join(args.command)
-    with connect(args.db) as conn:
-        try:
-            output = handle_command(conn, command_line)
-            conn.commit()
-        except Exception as exc:
-            conn.rollback()
-            print(f"ERROR: {exc}")
-            raise SystemExit(1)
+    try:
+        output = run_command(args.db, command_line)
+    except Exception as exc:
+        print(f"ERROR: {exc}")
+        raise SystemExit(1)
     if output:
         print(output)
 
