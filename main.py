@@ -8,11 +8,13 @@ from pathlib import Path
 from finance_core.db import DEFAULT_DB_PATH, connect, init_db
 from finance_core.llm import chat_completion
 from finance_core.services.ask_context import build_ask_prompt, build_finance_context
-from finance_core.services.snapshots import (
-    format_snapshot,
-    get_latest_snapshot,
-    insert_snapshot,
+from finance_core.services.manual_snapshots import (
+    set_bank_total,
+    set_securities_total,
+    set_wallet_total,
 )
+from finance_core.services.now import show_now
+from finance_core.services.snapshots import format_snapshot
 
 
 def parse_amount(raw: str) -> int:
@@ -32,33 +34,21 @@ def handle_command(conn: sqlite3.Connection, command_line: str) -> str:
 
     command = parts[0]
     if command == "/now":
-        return format_snapshot(get_latest_snapshot(conn))
+        return show_now(conn)
 
     if command == "/set-bank":
         require_args(parts, 2, "/set-bank <amount>")
-        snapshot = insert_snapshot(conn, bank_total=parse_amount(parts[1]), memo="set-bank")
+        snapshot = set_bank_total(conn, parse_amount(parts[1]))
         return "銀行残高を更新しました\n" + format_snapshot(snapshot)
 
     if command == "/set-securities":
         require_args(parts, 2, "/set-securities <amount>")
-        snapshot = insert_snapshot(
-            conn,
-            securities_total=parse_amount(parts[1]),
-            memo="set-securities",
-        )
+        snapshot = set_securities_total(conn, parse_amount(parts[1]))
         return "証券評価額を更新しました\n" + format_snapshot(snapshot)
 
     if command == "/cash-set":
         require_args(parts, 2, "/cash-set <amount>")
-        amount = parse_amount(parts[1])
-        conn.execute(
-            """
-            INSERT INTO wallet_transactions (occurred_on, direction, amount, description)
-            VALUES (date('now', 'localtime'), 'set', ?, ?)
-            """,
-            (amount, "cash-set"),
-        )
-        snapshot = insert_snapshot(conn, wallet_total=amount, memo="cash-set")
+        snapshot = set_wallet_total(conn, parse_amount(parts[1]))
         return "財布残高を設定しました\n" + format_snapshot(snapshot)
 
     if command == "/ask":

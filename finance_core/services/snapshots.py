@@ -112,12 +112,6 @@ def insert_snapshot(
 
 
 def format_snapshot(snapshot: dict[str, Any]) -> str:
-    return "\n".join(
-        [
-            f"総資産:        {snapshot['total_assets']:,}円",
-            f"銀行残高:       {snapshot['bank_total']:,}円",
-            f"証券評価額:    {snapshot['securities_total']:,}円",
-            f"財布残高:          {snapshot['wallet_total']:,}円",
-            f"カード利用:      -{snapshot['credit_card_unbilled']:,}円",
-        ]
-    )
+    from finance_core.services.now import format_current_position
+
+    return format_current_position(snapshot)
