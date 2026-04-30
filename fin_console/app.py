@@ -4,6 +4,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from finance_core.display import fit as _fit
+
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -49,15 +51,15 @@ class SidePane(RichLog):
 
         self.write("[bold #00ff66]── 高額カード決済 TOP5 ──[/bold #00ff66]")
         for t in card_summary["large_transactions"][:5]:
-            merchant = str(t["merchant"])[:18]
-            self.write(f"  [#007733]{t['used_on']}[/#007733]  {merchant:<18}  [yellow]{int(t['amount']):>8,}円[/yellow]")
+            merchant = _fit(str(t["merchant"]), 18)
+            self.write(f"  [#007733]{t['used_on']}[/#007733]  {merchant}  [yellow]{int(t['amount']):>9,}円[/yellow]")
 
         self.write("")
         self.write("[bold #00ff66]── 今月の現金支出 ──[/bold #00ff66]")
         if wallet_summary["large_cash_out"]:
             for w in wallet_summary["large_cash_out"][:5]:
-                desc = str(w["description"])[:16] if w["description"] else "-"
-                self.write(f"  [#007733]{w['occurred_on']}[/#007733]  {desc:<16}  [yellow]{int(w['amount']):>8,}円[/yellow]")
+                desc = _fit(str(w["description"]) if w["description"] else "-", 16)
+                self.write(f"  [#007733]{w['occurred_on']}[/#007733]  {desc}  [yellow]{int(w['amount']):>9,}円[/yellow]")
         else:
             self.write("  [dim]（記録なし）[/dim]")
 
