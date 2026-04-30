@@ -159,11 +159,14 @@ def refresh_card_unbilled(conn: sqlite3.Connection, month: str | None = None) ->
 
 def build_finance_context(conn: sqlite3.Connection, question: str) -> str:
     now = get_latest_snapshot(conn)
-    this_month = current_month()
-    prev_month = previous_month()
-    card_this = get_card_month_summary(conn, this_month)
-    card_prev = get_card_month_summary(conn, prev_month)
-    wallet = get_wallet_month_summary(conn, this_month)
+    usage_month = current_month()        # 今月の利用月（財布支出集計に使う）
+    billing_month = card_billing_month() # 今月利用分の引き落とし月
+    prev_billing = previous_month(
+        date(int(billing_month[:4]), int(billing_month[5:7]), 1)
+    )
+    card_this = get_card_month_summary(conn, billing_month)
+    card_prev = get_card_month_summary(conn, prev_billing)
+    wallet = get_wallet_month_summary(conn, usage_month)
     transfers = get_recent_transfers(conn)
 
     return f"""## 現在の資産状況
@@ -173,18 +176,16 @@ def build_finance_context(conn: sqlite3.Connection, question: str) -> str:
 財布残高: {now['wallet_total']}円
 カード未払い/今月利用: {now['credit_card_unbilled']}円
 
-## 今月のカード利用
-対象月: {this_month}
+## 今月のカード利用（引き落とし月: {billing_month}）
 合計: {card_this['total']}円
 加盟店別: {card_this['by_merchant']}
 高額決済: {card_this['large_transactions']}
 
-## 前月比較
-対象月: {prev_month}
+## 前月比較（引き落とし月: {prev_billing}）
 前月カード合計: {card_prev['total']}円
 差額: {int(card_this['total']) - int(card_prev['total'])}円
 
-## 今月の現金支出
+## 今月の現金支出（{usage_month}）
 財布支出合計: {wallet['cash_out_total']}円
 主な現金支出: {wallet['large_cash_out']}
 

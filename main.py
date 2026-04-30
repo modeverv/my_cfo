@@ -120,6 +120,7 @@ def handle_command(conn: sqlite3.Connection, command_line: str) -> str:
         question = " ".join(parts[1:])
         context = build_finance_context(conn, question)
         prompt = build_ask_prompt(context, question)
+        print("LLMに問い合わせ中です、お待ちください...", flush=True)
         return chat_completion(prompt)
 
     raise ValueError(f"未対応コマンドです: {command}")
