@@ -4,3 +4,14 @@
 data/inbox/card/*.csv
 data/archive/*.csv
 data/failed/*.csv
+
+# 開発環境 / IDE / 一時ファイル
+.idea/
+.claude/
+.DS_Store
+.venv/
+__pycache__/
+*.pyc
+# dotenv / 環境変数ファイル
+.env
+.env.*
