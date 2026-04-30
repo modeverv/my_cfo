@@ -125,6 +125,24 @@ def cmd_ask(conn: sqlite3.Connection, parts: list[str]) -> str:
     return chat_completion(prompt)
 
 
+def cmd_help(conn: sqlite3.Connection, parts: list[str]) -> str:
+    return (
+        "── コマンド一覧 ──\n"
+        "  /now                       現在の資産状況\n"
+        "  /set-bank <amount>         銀行残高を更新\n"
+        "  /set-securities <amount>   証券評価額を更新\n"
+        "  /cash-set <amount>         財布残高を補正\n"
+        "  /cash-in <amount> <memo>   財布に入金\n"
+        "  /cash-out <amount> <memo>  財布から支出\n"
+        "  /cash                      財布の取引履歴\n"
+        "  /atm <amount> [memo]       銀行→財布へATM引き出し\n"
+        "  /import [dir]              CSVを一括取り込み\n"
+        "  /card [this_month|YYYY-MM] カード利用集計\n"
+        "  /ask <質問>                LLMに分析を依頼\n"
+        "  /help                      このヘルプを表示\n"
+    )
+
+
 # ── ディスパッチ ──────────────────────────────────────────
 
 _COMMANDS: dict[str, Callable[[sqlite3.Connection, list[str]], str]] = {
@@ -139,6 +157,7 @@ _COMMANDS: dict[str, Callable[[sqlite3.Connection, list[str]], str]] = {
     "/card":           cmd_card,
     "/atm":            cmd_atm,
     "/ask":            cmd_ask,
+    "/help":           cmd_help,
 }
 
 

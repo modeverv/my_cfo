@@ -272,6 +272,24 @@ def import_directory(
     }
 
 
+def _insert_records(conn: sqlite3.Connection, records: list[dict[str, Any]]) -> tuple[int, int]:
+    imported = 0
+    skipped = 0
+    for rec in records:
+        if _transaction_exists(conn, rec):
+            skipped += 1
+            continue
+        conn.execute(
+            """
+            INSERT INTO card_transactions (used_on, merchant, amount, payment_month)
+            VALUES (?, ?, ?, ?)
+            """,
+            (rec["used_on"], rec["merchant"], rec["amount"], rec["payment_month"]),
+        )
+        imported += 1
+    return imported, skipped
+
+
 def import_csv(conn: sqlite3.Connection, path: Path) -> dict[str, int]:
     """CSVを取り込み、件数を返す。明細の完全一致は行単位でスキップ"""
     path = Path(path)
@@ -281,21 +299,7 @@ def import_csv(conn: sqlite3.Connection, path: Path) -> dict[str, int]:
         "SELECT id, status FROM imports WHERE file_hash = ?", (fhash,)
     ).fetchone()
     if existing:
-        records = parse_csv(path)
-        imported = 0
-        skipped = 0
-        for rec in records:
-            if _transaction_exists(conn, rec):
-                skipped += 1
-                continue
-            conn.execute(
-                """
-                INSERT INTO card_transactions (used_on, merchant, amount, payment_month)
-                VALUES (?, ?, ?, ?)
-                """,
-                (rec["used_on"], rec["merchant"], rec["amount"], rec["payment_month"]),
-            )
-            imported += 1
+        imported, skipped = _insert_records(conn, parse_csv(path))
         return {"imported": imported, "skipped": skipped, "import_id": existing["id"]}
 
     import_id = conn.execute(
@@ -307,21 +311,7 @@ def import_csv(conn: sqlite3.Connection, path: Path) -> dict[str, int]:
     ).lastrowid
 
     try:
-        records = parse_csv(path)
-        imported = 0
-        skipped = 0
-        for rec in records:
-            if _transaction_exists(conn, rec):
-                skipped += 1
-                continue
-            conn.execute(
-                """
-                INSERT INTO card_transactions (used_on, merchant, amount, payment_month)
-                VALUES (?, ?, ?, ?)
-                """,
-                (rec["used_on"], rec["merchant"], rec["amount"], rec["payment_month"]),
-            )
-            imported += 1
+        imported, skipped = _insert_records(conn, parse_csv(path))
         conn.execute(
             """
             UPDATE imports

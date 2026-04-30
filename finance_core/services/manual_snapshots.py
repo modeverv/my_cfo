@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from finance_core.services.snapshots import insert_snapshot
+from finance_core.services.snapshots import get_latest_snapshot, insert_snapshot
 
 
 def set_bank_total(conn: sqlite3.Connection, amount: int) -> dict[str, Any]:
@@ -26,7 +26,6 @@ def set_wallet_total(conn: sqlite3.Connection, amount: int) -> dict[str, Any]:
 
 
 def cash_in(conn: sqlite3.Connection, amount: int, memo: str) -> dict[str, Any]:
-    from finance_core.services.snapshots import get_latest_snapshot
     latest = get_latest_snapshot(conn)
     new_wallet = latest["wallet_total"] + amount
     conn.execute(
@@ -40,7 +39,6 @@ def cash_in(conn: sqlite3.Connection, amount: int, memo: str) -> dict[str, Any]:
 
 
 def cash_out(conn: sqlite3.Connection, amount: int, memo: str) -> dict[str, Any]:
-    from finance_core.services.snapshots import get_latest_snapshot
     latest = get_latest_snapshot(conn)
     new_wallet = latest["wallet_total"] - amount
     if new_wallet < 0:

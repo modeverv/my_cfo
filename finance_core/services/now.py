@@ -63,17 +63,8 @@ def show_card(conn: sqlite3.Connection, month: str | None = None) -> str:
     target = month or current_month()
     summary = get_card_month_summary(conn, target)
 
-    count = conn.execute(
-        """
-        SELECT COUNT(*) AS cnt
-        FROM card_transactions
-        WHERE COALESCE(payment_month, substr(used_on, 1, 7)) = ?
-        """,
-        (target,),
-    ).fetchone()["cnt"]
-
     lines = [
-        f"カード利用 {target} — {count}件  計 {summary['total']:,}円",
+        f"カード利用 {target} — {summary['count']}件  計 {summary['total']:,}円",
         "",
         "加盟店別TOP10:",
     ]

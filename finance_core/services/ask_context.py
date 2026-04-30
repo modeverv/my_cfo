@@ -7,6 +7,9 @@ from typing import Any
 from finance_core.services.snapshots import get_latest_snapshot
 
 
+_PM = "COALESCE(payment_month, substr(used_on, 1, 7))"
+
+
 def current_month(today: date | None = None) -> str:
     target = today or date.today()
     return target.strftime("%Y-%m")
@@ -34,20 +37,20 @@ def previous_month(today: date | None = None) -> str:
 
 
 def get_card_month_summary(conn: sqlite3.Connection, month: str) -> dict[str, Any]:
-    total = conn.execute(
-        """
-        SELECT COALESCE(SUM(amount), 0) AS total
+    agg = conn.execute(
+        f"""
+        SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total
         FROM card_transactions
-        WHERE COALESCE(payment_month, substr(used_on, 1, 7)) = ?
+        WHERE {_PM} = ?
         """,
         (month,),
-    ).fetchone()["total"]
+    ).fetchone()
 
     by_merchant = conn.execute(
-        """
+        f"""
         SELECT merchant, SUM(amount) AS total
         FROM card_transactions
-        WHERE COALESCE(payment_month, substr(used_on, 1, 7)) = ?
+        WHERE {_PM} = ?
         GROUP BY merchant
         ORDER BY total DESC
         LIMIT 10
@@ -56,10 +59,10 @@ def get_card_month_summary(conn: sqlite3.Connection, month: str) -> dict[str, An
     ).fetchall()
 
     large_transactions = conn.execute(
-        """
+        f"""
         SELECT used_on, merchant, amount
         FROM card_transactions
-        WHERE COALESCE(payment_month, substr(used_on, 1, 7)) = ?
+        WHERE {_PM} = ?
         ORDER BY amount DESC, used_on DESC
         LIMIT 10
         """,
@@ -68,7 +71,8 @@ def get_card_month_summary(conn: sqlite3.Connection, month: str) -> dict[str, An
 
     return {
         "month": month,
-        "total": int(total),
+        "count": int(agg["count"]),
+        "total": int(agg["total"]),
         "by_merchant": [
             {"merchant": row["merchant"], "total": int(row["total"])}
             for row in by_merchant
@@ -148,10 +152,10 @@ def refresh_card_unbilled(conn: sqlite3.Connection, month: str | None = None) ->
     from finance_core.services.snapshots import insert_snapshot
     target = month or current_month()
     total = conn.execute(
-        """
+        f"""
         SELECT COALESCE(SUM(amount), 0) AS total
         FROM card_transactions
-        WHERE COALESCE(payment_month, substr(used_on, 1, 7)) = ?
+        WHERE {_PM} = ?
         """,
         (target,),
     ).fetchone()["total"]
@@ -161,10 +165,8 @@ def refresh_card_unbilled(conn: sqlite3.Connection, month: str | None = None) ->
 def build_finance_context(conn: sqlite3.Connection, question: str) -> str:
     now = get_latest_snapshot(conn)
     usage_month = current_month()        # 今月の利用月（財布支出集計に使う）
-    billing_month = card_billing_month() # 今月利用分の引き落とし月
-    prev_billing = previous_month(
-        date(int(billing_month[:4]), int(billing_month[5:7]), 1)
-    )
+    billing_month = card_billing_month() # 今月利用分の引き落とし月（翌月）
+    prev_billing = usage_month           # 翌月の前月 = 今月
     card_this = get_card_month_summary(conn, billing_month)
     card_prev = get_card_month_summary(conn, prev_billing)
     wallet = get_wallet_month_summary(conn, usage_month)

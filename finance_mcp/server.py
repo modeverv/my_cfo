@@ -98,30 +98,21 @@ def _validate_amount(args: JsonDict, key: str = "amount") -> int:
     return raw
 
 
-def _validate_memo(args: JsonDict, required: bool = False) -> str | None:
+def _validate_memo(args: JsonDict, required: bool = False) -> str:
     raw = args.get("memo")
     if raw is None:
         if required:
             raise ValueError("memo は必須です")
-        return None
+        return ""
     if not isinstance(raw, str):
         raise ValueError("memo は文字列で指定してください")
     return raw
 
 
-def _month_arg(args: JsonDict) -> str:
+def _resolve_month(args: JsonDict, default_fn: Callable[[], str]) -> str:
     raw = args.get("month", "this_month")
     if raw == "this_month":
-        return card_billing_month()
-    if not isinstance(raw, str) or not re.match(r"^\d{4}-\d{2}$", raw):
-        raise ValueError('month は "this_month" または "YYYY-MM" で指定してください')
-    return raw
-
-
-def _wallet_month_arg(args: JsonDict) -> str:
-    raw = args.get("month", "this_month")
-    if raw == "this_month":
-        return current_month()
+        return default_fn()
     if not isinstance(raw, str) or not re.match(r"^\d{4}-\d{2}$", raw):
         raise ValueError('month は "this_month" または "YYYY-MM" で指定してください')
     return raw
@@ -132,11 +123,11 @@ def finance_now(conn: sqlite3.Connection, args: JsonDict) -> JsonDict:
 
 
 def finance_card_summary(conn: sqlite3.Connection, args: JsonDict) -> JsonDict:
-    return _ok(get_card_month_summary(conn, _month_arg(args)))
+    return _ok(get_card_month_summary(conn, _resolve_month(args, card_billing_month)))
 
 
 def finance_wallet_summary(conn: sqlite3.Connection, args: JsonDict) -> JsonDict:
-    return _ok(get_wallet_month_summary(conn, _wallet_month_arg(args)))
+    return _ok(get_wallet_month_summary(conn, _resolve_month(args, current_month)))
 
 
 def finance_recent_transfers(conn: sqlite3.Connection, args: JsonDict) -> JsonDict:
@@ -159,15 +150,11 @@ def finance_cash_set(conn: sqlite3.Connection, args: JsonDict) -> JsonDict:
 
 
 def finance_cash_in(conn: sqlite3.Connection, args: JsonDict) -> JsonDict:
-    memo = _validate_memo(args, required=True)
-    assert memo is not None
-    return _ok({"snapshot": core_cash_in(conn, _validate_amount(args), memo)})
+    return _ok({"snapshot": core_cash_in(conn, _validate_amount(args), _validate_memo(args, required=True))})
 
 
 def finance_cash_out(conn: sqlite3.Connection, args: JsonDict) -> JsonDict:
-    memo = _validate_memo(args, required=True)
-    assert memo is not None
-    return _ok({"snapshot": core_cash_out(conn, _validate_amount(args), memo)})
+    return _ok({"snapshot": core_cash_out(conn, _validate_amount(args), _validate_memo(args, required=True))})
 
 
 def finance_transfer(conn: sqlite3.Connection, args: JsonDict) -> JsonDict:

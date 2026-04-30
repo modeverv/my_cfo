@@ -75,8 +75,9 @@ def transfer(
         snapshot_kwargs["bank_total"] = latest["bank_total"] + amount
 
     else:
-        # MVPスコープ外の組み合わせはtransferテーブルだけ記録
-        pass
+        raise ValueError(
+            f"未対応の振替組み合わせです: {from_account} → {to_account}"
+        )
 
     transfer_memo = f"transfer {from_account}→{to_account}" + (f": {memo}" if memo else "")
     snapshot = insert_snapshot(conn, memo=transfer_memo, **snapshot_kwargs)
