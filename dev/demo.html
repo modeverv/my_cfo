@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Finance Console TUI Demo</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #050508;
+  color: #c8c8d0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  padding: 18px;
+}
+.term {
+  background: #0a0a0f;
+  border: 1px solid #2a2a3a;
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 36px);
+  min-height: 620px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.45);
+}
+.titlebar {
+  background: #111118;
+  border-bottom: 1px solid #2a2a3a;
+  padding: 7px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.title { color: #00ff9d; font-size: 12px; letter-spacing: .08em; }
+.status { color: #777; font-size: 11px; }
+.status strong { color: #00ff9d; font-weight: normal; }
+.body { flex: 1; display: flex; overflow: hidden; }
+.main, .side { overflow-y: auto; line-height: 1.7; }
+.main { flex: 6; border-right: 1px solid #2a2a3a; padding: 14px 16px; }
+.side { flex: 4; padding: 14px 14px; background: #08080d; }
+.label { color: #444; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 8px; }
+.green { color: #00ff9d; }
+.dim { color: #555; }
+.warn { color: #d6a13a; }
+.red { color: #e06060; }
+.row { display: flex; justify-content: space-between; border-bottom: 1px solid #181826; padding: 5px 0; font-size: 12px; }
+.row .k { color: #888; }
+.row .v { color: #d8d8e0; }
+.row.total .v { color: #00ff9d; }
+.section { margin-bottom: 18px; }
+.card {
+  border: 1px solid #1b2c22;
+  background: #0b1510;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 10px 0;
+}
+.card.blue { background: #0c0e1a; border-color: #1d2350; }
+.card.yellow { background: #17130a; border-color: #3a2d12; }
+.command {
+  color: #00ff9d;
+  background: #101018;
+  border: 1px solid #252536;
+  padding: 2px 5px;
+  border-radius: 4px;
+}
+.item {
+  padding: 7px 0;
+  border-bottom: 1px solid #1a1a2a;
+  font-size: 12px;
+  cursor: pointer;
+}
+.item:hover { color: #00ff9d; }
+.item .sub { display: block; color: #555; font-size: 11px; margin-top: 2px; }
+.prompt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid #2a2a3a;
+  background: #0d0d14;
+  padding: 8px 12px;
+}
+.prompt span { color: #00ff9d; }
+.prompt input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #e8e8f0;
+  font: inherit;
+  caret-color: #00ff9d;
+}
+.fbar { display: flex; background: #111118; border-top: 1px solid #2a2a3a; }
+.fkey { flex: 1; padding: 5px 2px; text-align: center; border-right: 1px solid #2a2a3a; cursor: pointer; }
+.fkey:last-child { border-right: none; }
+.fkey:hover { background: #1e1e2e; }
+.fnum { display:block; color:#555; font-size:9px; }
+.flabel { display:block; color:#aaa; font-size:10px; }
+.fkey:hover .flabel { color:#00ff9d; }
+pre {
+  white-space: pre-wrap;
+  background: #0d0d14;
+  border: 1px solid #242438;
+  padding: 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #aaa;
+  line-height: 1.6;
+}
+</style>
+</head>
+<body>
+<div class="term">
+  <div class="titlebar">
+    <div class="title">FINANCE CONSOLE v0.1</div>
+    <div class="status" id="status">as_of: <strong>2026-04-30</strong> | total: <strong>61.81M</strong> | wallet: <strong>42K</strong></div>
+  </div>
+  <div class="body">
+    <main class="main" id="main"></main>
+    <aside class="side" id="side"></aside>
+  </div>
+  <div class="prompt">
+    <span>fin&gt;</span>
+    <input id="cmd" autocomplete="off" spellcheck="false" placeholder="/now, /card this_month, /cash-out 1200 昼食, /ask 今月カード使いすぎ？" />
+  </div>
+  <div class="fbar">
+    <div class="fkey" onclick="fill('/help')"><span class="fnum">F1</span><span class="flabel">Help</span></div>
+    <div class="fkey" onclick="run('/now')"><span class="fnum">F2</span><span class="flabel">Now</span></div>
+    <div class="fkey" onclick="run('/card this_month')"><span class="fnum">F3</span><span class="flabel">Card</span></div>
+    <div class="fkey" onclick="run('/cash')"><span class="fnum">F4</span><span class="flabel">Cash</span></div>
+    <div class="fkey" onclick="fill('/transfer bank wallet ')"><span class="fnum">F5</span><span class="flabel">Transfer</span></div>
+    <div class="fkey" onclick="fill('/ask ')"><span class="fnum">F6</span><span class="flabel">Ask</span></div>
+    <div class="fkey" onclick="run('/import-card demo')"><span class="fnum">F7</span><span class="flabel">Import</span></div>
+    <div class="fkey" onclick="fill('/set-bank ')"><span class="fnum">F8</span><span class="flabel">SetBank</span></div>
+    <div class="fkey" style="opacity:.35"><span class="fnum">F9</span><span class="flabel">---</span></div>
+    <div class="fkey" onclick="run('q')"><span class="fnum">F10</span><span class="flabel">Quit</span></div>
+  </div>
+</div>
+<script>
+const state = {
+  bank: 3200000,
+  securities: 58800000,
+  wallet: 42000,
+  card: 230000,
+  cashLog: [
+    ['2026-04-29', 'out', 1200, '昼食'],
+    ['2026-04-28', 'out', 800, 'コーヒー'],
+    ['2026-04-27', 'in', 30000, 'ATM引き出し']
+  ],
+  transfers: [['2026-04-27', 'bank', 'wallet', 30000, 'ATM']],
+  cardTx: [
+    ['2026-04-02', 'Amazon', 18400, 'Amazon'],
+    ['2026-04-04', 'スーパー', 8200, '食費'],
+    ['2026-04-08', 'ENEOS', 12300, '車関連'],
+    ['2026-04-10', 'Amazon', 9200, 'Amazon'],
+    ['2026-04-12', '通信費', 8900, '固定費'],
+    ['2026-04-16', 'Amazon', 20600, 'Amazon'],
+    ['2026-04-21', 'スーパー', 7600, '食費'],
+    ['2026-04-25', '高速道路', 6800, '車関連']
+  ]
+};
+function yen(n){ return Number(n).toLocaleString('ja-JP') + '円'; }
+function total(){ return state.bank + state.securities + state.wallet - state.card; }
+function updateStatus(){ document.getElementById('status').innerHTML = `as_of: <strong>2026-04-30</strong> | total: <strong>${(total()/1000000).toFixed(2)}M</strong> | wallet: <strong>${Math.round(state.wallet/1000)}K</strong>`; }
+function main(html){ document.getElementById('main').innerHTML = html; }
+function side(html){ document.getElementById('side').innerHTML = html; }
+function showNow(){
+  updateStatus();
+  main(`<div class="label">Current Position</div>
+    <div class="card">
+      <div class="row total"><span class="k">実質純資産</span><span class="v">${yen(total())}</span></div>
+      <div class="row"><span class="k">銀行残高</span><span class="v">${yen(state.bank)}</span></div>
+      <div class="row"><span class="k">証券評価額</span><span class="v">${yen(state.securities)}</span></div>
+      <div class="row"><span class="k">物理財布</span><span class="v">${yen(state.wallet)}</span></div>
+      <div class="row"><span class="k">カード利用</span><span class="v red">-${yen(state.card)}</span></div>
+    </div>
+    <div class="dim">計算式: 銀行 + 証券 + 財布 - カード利用</div>`);
+  showSideSummary();
+}
+function showSideSummary(){
+  side(`<div class="label">Quick Commands</div>
+    <div class="item" onclick="run('/card this_month')"><span class="green">/card this_month</span><span class="sub">今月のカード利用を見る</span></div>
+    <div class="item" onclick="run('/cash')"><span class="green">/cash</span><span class="sub">財布IN/OUTを見る</span></div>
+    <div class="item" onclick="fill('/cash-out ')"><span class="green">/cash-out</span><span class="sub">現金支出を入れる</span></div>
+    <div class="item" onclick="fill('/ask ')"><span class="green">/ask</span><span class="sub">LLMに分析させる</span></div>`);
+}
+function showCard(){
+  const byCat = {};
+  state.cardTx.forEach(x=> byCat[x[3]] = (byCat[x[3]]||0)+x[2]);
+  const cats = Object.entries(byCat).sort((a,b)=>b[1]-a[1]);
+  main(`<div class="label">Card — 2026-04</div>
+    <div class="card blue">
+      <div class="row total"><span class="k">カード合計</span><span class="v">${yen(state.card)}</span></div>
+      ${cats.map(([k,v])=>`<div class="row"><span class="k">${k}</span><span class="v">${yen(v)}</span></div>`).join('')}
+    </div>
+    <div class="label">Large / Recent Transactions</div>
+    <pre>${state.cardTx.map(x=>`${x[0]}  ${x[1].padEnd(10,' ')} ${String(yen(x[2])).padStart(12,' ')}  ${x[3]}`).join('\n')}</pre>`);
+  side(`<div class="label">Top Categories</div>${cats.map(([k,v],i)=>`<div class="item"><span class="green">[${i+1}]</span> ${k}<span class="sub">${yen(v)}</span></div>`).join('')}`);
+}
+function showCash(){
+  main(`<div class="label">Physical Wallet</div>
+    <div class="card">
+      <div class="row total"><span class="k">財布残高</span><span class="v">${yen(state.wallet)}</span></div>
+    </div>
+    <div class="label">Wallet Transactions</div>
+    <pre>${state.cashLog.map(x=>`${x[0]}  ${x[1].padEnd(3,' ')}  ${String(yen(x[2])).padStart(10,' ')}  ${x[3]}`).join('\n')}</pre>`);
+  side(`<div class="label">Transfers</div>${state.transfers.map(t=>`<div class="item">${t[1]} → ${t[2]}<span class="sub">${yen(t[3])} / ${t[4]}</span></div>`).join('')}`);
+}
+function showAsk(q){
+  const amazon = state.cardTx.filter(x=>x[3]==='Amazon').reduce((s,x)=>s+x[2],0);
+  const car = state.cardTx.filter(x=>x[3]==='車関連').reduce((s,x)=>s+x[2],0);
+  const food = state.cardTx.filter(x=>x[3]==='食費').reduce((s,x)=>s+x[2],0);
+  main(`<div class="label">ASK</div>
+    <div class="dim">question: ${q}</div>
+    <div class="card blue">
+      <div class="green">LLM回答</div>
+      <p style="margin-top:8px;font-size:12px;line-height:1.8;">
+      結論: 今月のカード利用は <span class="green">${yen(state.card)}</span> で、内訳を見ると Amazon と車関連が目立ちます。<br><br>
+      主な要因:<br>
+      1. Amazon: ${yen(amazon)}<br>
+      2. 車関連: ${yen(car)}<br>
+      3. 食費: ${yen(food)}<br><br>
+      なお、銀行から財布への ${yen(30000)} は振替なので支出ではありません。財布からの現金支出だけを支出として見ます。
+      </p>
+    </div>`);
+  side(`<div class="label">Context Sent to LLM</div>
+    <div class="item">総資産<span class="sub">${yen(total())}</span></div>
+    <div class="item">カード利用<span class="sub">${yen(state.card)}</span></div>
+    <div class="item">財布残高<span class="sub">${yen(state.wallet)}</span></div>
+    <div class="item">最近の振替<span class="sub">bank → wallet ${yen(30000)}</span></div>`);
+}
+function showHelp(){
+  main(`<div class="label">Help</div><pre>/now                         現在の資産状況
+/card this_month              今月のカード利用
+/cash                         財布残高と現金IN/OUT
+/set-bank 3200000             銀行残高を手入力
+/set-securities 58800000      証券評価額を手入力
+/cash-set 42000               財布残高を実測補正
+/cash-out 1200 昼食            財布から支出
+/cash-in 5000 精算             財布へ入金
+/transfer bank wallet 30000   銀行→財布の振替
+/import-card PATH             カードCSV取り込み
+/ask TEXT                     財務データを踏まえてLLM分析
+q                             終了</pre>`);
+  showSideSummary();
+}
+function fill(s){ const el=document.getElementById('cmd'); el.value=s; el.focus(); }
+function run(raw){ handle(raw); document.getElementById('cmd').value=''; }
+function handle(raw){
+  raw = raw.trim(); if(!raw) return;
+  if(raw==='/help' || raw==='?') return showHelp();
+  if(raw==='/now') return showNow();
+  if(raw.startsWith('/card')) return showCard();
+  if(raw==='/cash') return showCash();
+  if(raw.startsWith('/ask ')) return showAsk(raw.slice(5));
+  if(raw.startsWith('/set-bank ')){ state.bank=Number(raw.split(/\s+/)[1]); updateStatus(); return showNow(); }
+  if(raw.startsWith('/set-securities ')){ state.securities=Number(raw.split(/\s+/)[1]); updateStatus(); return showNow(); }
+  if(raw.startsWith('/cash-set ')){ state.wallet=Number(raw.split(/\s+/)[1]); state.cashLog.unshift(['2026-04-30','set',state.wallet,'実測補正']); updateStatus(); return showCash(); }
+  if(raw.startsWith('/cash-out ')){ const m=raw.match(/^\/cash-out\s+(\d+)\s*(.*)$/); if(m){ const a=Number(m[1]); const memo=m[2]||'現金支出'; state.wallet-=a; state.cashLog.unshift(['2026-04-30','out',a,memo]); updateStatus(); return showCash(); }}
+  if(raw.startsWith('/cash-in ')){ const m=raw.match(/^\/cash-in\s+(\d+)\s*(.*)$/); if(m){ const a=Number(m[1]); const memo=m[2]||'現金入金'; state.wallet+=a; state.cashLog.unshift(['2026-04-30','in',a,memo]); updateStatus(); return showCash(); }}
+  if(raw.startsWith('/transfer ')){ const parts=raw.split(/\s+/); const amount=Number(parts[3]); const memo=parts.slice(4).join(' ')||'transfer'; if(parts[1]==='bank'&&parts[2]==='wallet'){ state.bank-=amount; state.wallet+=amount; state.transfers.unshift(['2026-04-30','bank','wallet',amount,memo]); state.cashLog.unshift(['2026-04-30','in',amount,'transfer: '+memo]); updateStatus(); return showNow(); }}
+  if(raw.startsWith('/import-card')){ main(`<div class="label">Import</div><div class="card"><div class="green">カードCSVを取り込みました</div><div class="dim">demo mode: 82 rows imported</div></div>`); return showSideSummary(); }
+  if(raw==='q') return main('<div class="red">実アプリでは終了します。これはデモです。</div>');
+  main(`<div class="warn">unknown command: ${raw}</div><div class="dim">? or /help でヘルプ</div>`);
+}
+document.getElementById('cmd').addEventListener('keydown', e=>{ if(e.key==='Enter') run(e.target.value); });
+showNow();
+document.getElementById('cmd').focus();
+</script>
+</body>
+</html>
