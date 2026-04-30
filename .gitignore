@@ -1,1 +1,6 @@
 *.sqlite3
+
+# クレカ・インポート用CSV（個人データ）
+data/inbox/card/*.csv
+data/archive/*.csv
+data/failed/*.csv
