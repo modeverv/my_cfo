@@ -162,6 +162,11 @@ def main() -> None:
         help="SQLite database path",
     )
     parser.add_argument(
+        "--tui",
+        action="store_true",
+        help="Launch TUI mode",
+    )
+    parser.add_argument(
         "command",
         nargs="*",
         help="Command to run once. Omit to start the CLI loop.",
@@ -169,6 +174,10 @@ def main() -> None:
     args = parser.parse_args()
 
     init_db(args.db)
+    if args.tui:
+        from fin_console.app import FinanceApp
+        FinanceApp(db_path=args.db).run()
+        return
     if not args.command:
         repl(args.db)
         return

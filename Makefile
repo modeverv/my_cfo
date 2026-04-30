@@ -2,12 +2,14 @@ PYTHON ?= python3
 DB ?= finance.sqlite3
 QUESTION ?= 今月ってカード使いすぎ？
 
-.PHONY: help init run now set-bank set-securities cash-set ask compile smoke clean-test-db
+.PHONY: help install init run tui now set-bank set-securities cash-set ask compile smoke clean-test-db
 
 help:
 	@printf '%s\n' 'Targets:'
 	@printf '%s\n' '  make init                         Initialize SQLite DB'
+	@printf '%s\n' '  make install                      Install dependencies'
 	@printf '%s\n' '  make run                          Start CLI loop'
+	@printf '%s\n' '  make tui                          Start TUI mode'
 	@printf '%s\n' '  make now                          Show current assets'
 	@printf '%s\n' '  make set-bank AMOUNT=3200000       Set bank balance'
 	@printf '%s\n' '  make set-securities AMOUNT=58800000 Set securities total'
@@ -15,11 +17,17 @@ help:
 	@printf '%s\n' '  make ask QUESTION=...              Ask LM Studio'
 	@printf '%s\n' '  make smoke                         Run minimal verification with temp DB'
 
+install:
+	$(PYTHON) -m pip install -r requirements.txt
+
 init:
 	$(PYTHON) main.py --db $(DB) /now
 
 run:
 	$(PYTHON) main.py --db $(DB)
+
+tui:
+	$(PYTHON) main.py --db $(DB) --tui
 
 now:
 	$(PYTHON) main.py --db $(DB) /now
