@@ -23,3 +23,33 @@ def set_wallet_total(conn: sqlite3.Connection, amount: int) -> dict[str, Any]:
         (amount, "cash-set"),
     )
     return insert_snapshot(conn, wallet_total=amount, memo="cash-set")
+
+
+def cash_in(conn: sqlite3.Connection, amount: int, memo: str) -> dict[str, Any]:
+    from finance_core.services.snapshots import get_latest_snapshot
+    latest = get_latest_snapshot(conn)
+    new_wallet = latest["wallet_total"] + amount
+    conn.execute(
+        """
+        INSERT INTO wallet_transactions (occurred_on, direction, amount, description)
+        VALUES (date('now', 'localtime'), 'in', ?, ?)
+        """,
+        (amount, memo),
+    )
+    return insert_snapshot(conn, wallet_total=new_wallet, memo=f"cash-in: {memo}")
+
+
+def cash_out(conn: sqlite3.Connection, amount: int, memo: str) -> dict[str, Any]:
+    from finance_core.services.snapshots import get_latest_snapshot
+    latest = get_latest_snapshot(conn)
+    new_wallet = latest["wallet_total"] - amount
+    if new_wallet < 0:
+        raise ValueError(f"財布残高が不足しています (現在: {latest['wallet_total']:,}円)")
+    conn.execute(
+        """
+        INSERT INTO wallet_transactions (occurred_on, direction, amount, description)
+        VALUES (date('now', 'localtime'), 'out', ?, ?)
+        """,
+        (amount, memo),
+    )
+    return insert_snapshot(conn, wallet_total=new_wallet, memo=f"cash-out: {memo}")

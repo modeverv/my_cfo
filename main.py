@@ -9,11 +9,13 @@ from finance_core.db import DEFAULT_DB_PATH, connect, init_db
 from finance_core.llm import chat_completion
 from finance_core.services.ask_context import build_ask_prompt, build_finance_context
 from finance_core.services.manual_snapshots import (
+    cash_in,
+    cash_out,
     set_bank_total,
     set_securities_total,
     set_wallet_total,
 )
-from finance_core.services.now import show_now
+from finance_core.services.now import show_now, show_wallet
 from finance_core.services.snapshots import format_snapshot
 
 
@@ -50,6 +52,25 @@ def handle_command(conn: sqlite3.Connection, command_line: str) -> str:
         require_args(parts, 2, "/cash-set <amount>")
         snapshot = set_wallet_total(conn, parse_amount(parts[1]))
         return "財布残高を設定しました\n" + format_snapshot(snapshot)
+
+    if command == "/cash-in":
+        if len(parts) < 3:
+            raise ValueError("使い方: /cash-in <amount> <memo>")
+        amount = parse_amount(parts[1])
+        memo = " ".join(parts[2:])
+        snapshot = cash_in(conn, amount, memo)
+        return f"財布に {amount:,}円 入金しました: {memo}\n" + format_snapshot(snapshot)
+
+    if command == "/cash-out":
+        if len(parts) < 3:
+            raise ValueError("使い方: /cash-out <amount> <memo>")
+        amount = parse_amount(parts[1])
+        memo = " ".join(parts[2:])
+        snapshot = cash_out(conn, amount, memo)
+        return f"財布から {amount:,}円 支出しました: {memo}\n" + format_snapshot(snapshot)
+
+    if command == "/cash":
+        return show_wallet(conn)
 
     if command == "/ask":
         if len(parts) < 2:

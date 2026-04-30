@@ -24,3 +24,29 @@ def format_current_position(position: dict[str, Any]) -> str:
 
 def show_now(conn: sqlite3.Connection) -> str:
     return format_current_position(get_current_position(conn))
+
+
+def show_wallet(conn: sqlite3.Connection, limit: int = 10) -> str:
+    snapshot = get_latest_snapshot(conn)
+    rows = conn.execute(
+        """
+        SELECT occurred_on, direction, amount, description
+        FROM wallet_transactions
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+
+    lines = [f"財布残高: {snapshot['wallet_total']:,}円", ""]
+    if rows:
+        lines.append("最近の取引:")
+        direction_label = {"in": "入金", "out": "支出", "set": "補正"}
+        for row in rows:
+            label = direction_label.get(row["direction"], row["direction"])
+            desc = row["description"] or ""
+            lines.append(f"  {row['occurred_on']}  {label}  {row['amount']:>10,}円  {desc}")
+    else:
+        lines.append("取引履歴がありません")
+
+    return "\n".join(lines)
