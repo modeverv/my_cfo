@@ -54,50 +54,90 @@ class SidePane(RichLog):
             wallet_summary = get_wallet_month_summary(conn, usage)
             transfers = get_recent_transfers(conn, limit=5)
 
-        self.write("[bold]── 高額カード決済 TOP5 ──[/bold]")
+        self.write("[bold #00ff66]── 高額カード決済 TOP5 ──[/bold #00ff66]")
         for t in card_summary["large_transactions"][:5]:
-            self.write(f"  {t['used_on']}  {t['merchant'][:18]:<18}  {t['amount']:>8,}円")
+            self.write(f"  [#007733]{t['used_on']}[/#007733]  {t['merchant'][:18]:<18}  [yellow]{t['amount']:>8,}円[/yellow]")
 
         self.write("")
-        self.write("[bold]── 今月の現金支出 ──[/bold]")
+        self.write("[bold #00ff66]── 今月の現金支出 ──[/bold #00ff66]")
         if wallet_summary["large_cash_out"]:
             for w in wallet_summary["large_cash_out"][:5]:
                 desc = w["description"][:16] if w["description"] else "-"
-                self.write(f"  {w['occurred_on']}  {desc:<16}  {w['amount']:>8,}円")
+                self.write(f"  [#007733]{w['occurred_on']}[/#007733]  {desc:<16}  [yellow]{w['amount']:>8,}円[/yellow]")
         else:
-            self.write("  （記録なし）")
+            self.write("  [dim]（記録なし）[/dim]")
 
         self.write("")
-        self.write("[bold]── 最近の振替 ──[/bold]")
+        self.write("[bold #00ff66]── 最近の振替 ──[/bold #00ff66]")
         if transfers:
             for tr in transfers:
-                memo = f" {tr['memo']}" if tr["memo"] else ""
-                self.write(f"  {tr['occurred_on']}  {tr['from_account']}→{tr['to_account']}  {tr['amount']:,}円{memo}")
+                memo = f" [dim]{tr['memo']}[/dim]" if tr["memo"] else ""
+                self.write(f"  [#007733]{tr['occurred_on']}[/#007733]  [cyan]{tr['from_account']}→{tr['to_account']}[/cyan]  {tr['amount']:,}円{memo}")
         else:
-            self.write("  （記録なし）")
+            self.write("  [dim]（記録なし）[/dim]")
 
 
 # ── メインアプリ ──────────────────────────────────────────
 
 class FinanceApp(App):
     CSS = """
+    /* ── レトログリーン基調 ── */
+    Screen {
+        background: #050f05;
+        color: #00e040;
+    }
+
     StatusHeader {
-        background: $primary;
-        color: $text;
+        background: #003310;
+        color: #00ff66;
         height: 1;
         padding: 0 1;
+        text-style: bold;
     }
+
     #main-pane {
+        background: #050f05;
+        color: #00e040;
         width: 3fr;
-        border-right: solid $primary;
+        border-right: solid #006622;
+        scrollbar-color: #006622;
+        scrollbar-background: #030a03;
     }
+
     #side-pane {
+        background: #030a03;
+        color: #00b030;
         width: 2fr;
+        scrollbar-color: #006622;
+        scrollbar-background: #030a03;
     }
+
     #input-bar {
+        background: #020802;
         height: 3;
-        border-top: solid $primary;
+        border-top: solid #006622;
         padding: 0 1;
+    }
+
+    Input {
+        background: #020802;
+        color: #00ff66;
+        border: solid #004d18;
+    }
+
+    Input:focus {
+        border: solid #00ff66;
+        color: #00ff66;
+    }
+
+    Footer {
+        background: #003310;
+        color: #00cc44;
+    }
+
+    Footer .footer--key {
+        background: #005522;
+        color: #00ff66;
     }
     """
 
@@ -106,7 +146,7 @@ class FinanceApp(App):
         Binding("f2",  "cmd_now",       "Now"),
         Binding("f3",  "cmd_card",      "Card"),
         Binding("f4",  "cmd_cash",      "Cash"),
-        Binding("f5",  "focus_transfer","Transfer"),
+        Binding("f5",  "focus_atm",     "ATM"),
         Binding("f6",  "focus_ask",     "Ask"),
         Binding("f10", "quit",          "Quit"),
     ]
@@ -143,7 +183,7 @@ class FinanceApp(App):
 
     def _run_command(self, command_line: str) -> None:
         main_log = self.query_one("#main-pane", RichLog)
-        main_log.write(f"[bold cyan]fin>[/bold cyan] {command_line}")
+        main_log.write(f"[bold #00ff66]fin>[/bold #00ff66] [#00cc44]{command_line}[/#00cc44]")
 
         # /ask は時間がかかるのでスレッドで実行
         if command_line.startswith("/ask"):
@@ -195,9 +235,8 @@ class FinanceApp(App):
             "  /cash-in <amount> <memo>  財布に入金\n"
             "  /cash-out <amount> <memo> 財布から支出\n"
             "  /cash                     財布の取引履歴\n"
-            "  /transfer <from> <to> <amount> [memo]\n"
-            "  /import                   CSVを一括取り込み\n"
-            "  /import-card <path>       CSVを個別取り込み\n"
+            "  /atm <amount> [memo]             銀行→財布へATM引き出し\n"
+            "  /import [dir]             CSVを一括取り込み（重複スキップ）\n"
             "  /card [this_month|YYYY-MM] カード利用集計\n"
             "  /ask <質問>               LLMに分析を依頼\n"
         )
@@ -212,9 +251,9 @@ class FinanceApp(App):
     def action_cmd_cash(self) -> None:
         self._run_command("/cash")
 
-    def action_focus_transfer(self) -> None:
+    def action_focus_atm(self) -> None:
         inp = self.query_one("#cmd-input", Input)
-        inp.value = "/transfer "
+        inp.value = "/atm "
         inp.focus()
         inp.cursor_position = len(inp.value)
 

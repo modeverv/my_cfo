@@ -19,6 +19,7 @@ help:
 
 install:
 	$(PYTHON) -m pip install -r requirements.txt
+	chmod +x cfo
 
 init:
 	$(PYTHON) main.py --db $(DB) /now

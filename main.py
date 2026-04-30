@@ -15,7 +15,7 @@ from finance_core.services.manual_snapshots import (
     set_securities_total,
     set_wallet_total,
 )
-from finance_core.importers.credit_card_csv import import_csv, import_directory
+from finance_core.importers.credit_card_csv import import_directory
 from finance_core.services.ask_context import card_billing_month, current_month, refresh_card_unbilled
 from finance_core.services.now import show_card, show_now, show_wallet
 from finance_core.services.transfers import transfer
@@ -88,31 +88,18 @@ def handle_command(conn: sqlite3.Connection, command_line: str) -> str:
         lines.append(format_snapshot(snapshot))
         return "\n".join(lines)
 
-    if command == "/import-card":
-        require_args(parts, 2, "/import-card <path>")
-        result = import_csv(conn, parts[1])
-        snapshot = refresh_card_unbilled(conn, card_billing_month())
-        return (
-            f"{result['imported']}件のカード明細を取り込みました\n"
-            + format_snapshot(snapshot)
-        )
-
     if command == "/card":
         arg = parts[1] if len(parts) > 1 else "this_month"
         month = card_billing_month() if arg == "this_month" else arg
         return show_card(conn, month)
 
-    if command == "/transfer":
-        if len(parts) < 4:
-            raise ValueError("使い方: /transfer <from> <to> <amount> [memo]")
-        from_key = parts[1]
-        to_key = parts[2]
-        amount = parse_amount(parts[3])
-        memo = " ".join(parts[4:]) if len(parts) > 4 else None
-        result = transfer(conn, from_key, to_key, amount, memo)
-        memo_str = f" ({memo})" if memo else ""
-        msg = f"{from_key}から{to_key}へ {amount:,}円を振替しました{memo_str}\n総資産は変わりません\n"
-        return msg + format_snapshot(result["snapshot"])
+    if command == "/atm":
+        if len(parts) < 2:
+            raise ValueError("使い方: /atm <amount> [memo]")
+        amount = parse_amount(parts[1])
+        memo = " ".join(parts[2:]) if len(parts) > 2 else "ATM引き出し"
+        result = transfer(conn, "bank", "wallet", amount, memo)
+        return f"銀行から財布へ {amount:,}円を移しました ({memo})\n総資産は変わりません\n" + format_snapshot(result["snapshot"])
 
     if command == "/ask":
         if len(parts) < 2:
