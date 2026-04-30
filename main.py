@@ -1,16 +1,135 @@
-# これはサンプルの Python スクリプトです。
+from __future__ import annotations
 
-# ⌃R を押して実行するか、ご自身のコードに置き換えてください。
-# ⇧ を2回押す を押すと、クラス/ファイル/ツールウィンドウ/アクション/設定を検索します。
+import argparse
+import shlex
+import sqlite3
+from pathlib import Path
+
+from finance_core.db import DEFAULT_DB_PATH, connect, init_db
+from finance_core.llm import chat_completion
+from finance_core.services.ask_context import build_ask_prompt, build_finance_context
+from finance_core.services.snapshots import (
+    format_snapshot,
+    get_latest_snapshot,
+    insert_snapshot,
+)
 
 
-def print_hi(name):
-    # スクリプトをデバッグするには以下のコード行でブレークポイントを使用してください。
-    print(f'Hi, {name}')  # ⌘F8を押すとブレークポイントを切り替えます。
+def parse_amount(raw: str) -> int:
+    try:
+        amount = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"金額は整数で指定してください: {raw}") from exc
+    if amount < 0:
+        raise ValueError("金額は0以上で指定してください")
+    return amount
 
 
-# ガター内の緑色のボタンを押すとスクリプトを実行します。
-if __name__ == '__main__':
-    print_hi('PyCharm')
+def handle_command(conn: sqlite3.Connection, command_line: str) -> str:
+    parts = shlex.split(command_line)
+    if not parts:
+        return ""
 
-# PyCharm のヘルプは https://www.jetbrains.com/help/pycharm/ を参照してください
+    command = parts[0]
+    if command == "/now":
+        return format_snapshot(get_latest_snapshot(conn))
+
+    if command == "/set-bank":
+        require_args(parts, 2, "/set-bank <amount>")
+        snapshot = insert_snapshot(conn, bank_total=parse_amount(parts[1]), memo="set-bank")
+        return "銀行残高を更新しました\n" + format_snapshot(snapshot)
+
+    if command == "/set-securities":
+        require_args(parts, 2, "/set-securities <amount>")
+        snapshot = insert_snapshot(
+            conn,
+            securities_total=parse_amount(parts[1]),
+            memo="set-securities",
+        )
+        return "証券評価額を更新しました\n" + format_snapshot(snapshot)
+
+    if command == "/cash-set":
+        require_args(parts, 2, "/cash-set <amount>")
+        amount = parse_amount(parts[1])
+        conn.execute(
+            """
+            INSERT INTO wallet_transactions (occurred_on, direction, amount, description)
+            VALUES (date('now', 'localtime'), 'set', ?, ?)
+            """,
+            (amount, "cash-set"),
+        )
+        snapshot = insert_snapshot(conn, wallet_total=amount, memo="cash-set")
+        return "財布残高を設定しました\n" + format_snapshot(snapshot)
+
+    if command == "/ask":
+        if len(parts) < 2:
+            raise ValueError("/ask <質問> の形式で指定してください")
+        question = " ".join(parts[1:])
+        context = build_finance_context(conn, question)
+        prompt = build_ask_prompt(context, question)
+        return chat_completion(prompt)
+
+    raise ValueError(f"未対応コマンドです: {command}")
+
+
+def require_args(parts: list[str], expected: int, usage: str) -> None:
+    if len(parts) != expected:
+        raise ValueError(f"使い方: {usage}")
+
+
+def repl(db_path: Path) -> None:
+    init_db(db_path)
+    with connect(db_path) as conn:
+        while True:
+            try:
+                line = input("fin> ").strip()
+            except EOFError:
+                print()
+                return
+            if line in {"q", "quit", "exit"}:
+                return
+            try:
+                output = handle_command(conn, line)
+                conn.commit()
+            except Exception as exc:
+                conn.rollback()
+                print(f"ERROR: {exc}")
+                continue
+            if output:
+                print(output)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Personal Finance Console")
+    parser.add_argument(
+        "--db",
+        type=Path,
+        default=DEFAULT_DB_PATH,
+        help="SQLite database path",
+    )
+    parser.add_argument(
+        "command",
+        nargs="*",
+        help="Command to run once. Omit to start the CLI loop.",
+    )
+    args = parser.parse_args()
+
+    init_db(args.db)
+    if not args.command:
+        repl(args.db)
+        return
+
+    command_line = " ".join(args.command)
+    with connect(args.db) as conn:
+        try:
+            output = handle_command(conn, command_line)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    if output:
+        print(output)
+
+
+if __name__ == "__main__":
+    main()
