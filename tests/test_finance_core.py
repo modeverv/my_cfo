@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import json
 from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -17,6 +18,7 @@ from finance_core.services.commands import handle_command
 from finance_core.services.manual_snapshots import cash_in, cash_out, set_wallet_total
 from finance_core.services.snapshots import calculate_total, get_latest_snapshot
 from finance_core.services.transfers import transfer
+from finance_mcp.server import FinanceMcpServer
 
 
 class DatabaseTestCase(unittest.TestCase):
@@ -259,6 +261,89 @@ class CreditCardCsvImportTests(DatabaseTestCase):
         self.assertEqual(second["imported"], 0)
         self.assertEqual(second["skipped"], 2)
         self.assertEqual(second["errors"], [])
+
+
+class McpServerTests(DatabaseTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.server = FinanceMcpServer(self.db_path)
+
+    def _tool(self, name: str, arguments: dict | None = None) -> dict:
+        response = self.server.handle({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": name, "arguments": arguments or {}},
+        })
+        assert response is not None
+        self.assertNotIn("error", response)
+        result = response["result"]
+        return json.loads(result["content"][0]["text"])
+
+    def test_mcp_lists_finance_tools_and_usage_resource(self) -> None:
+        tools_response = self.server.handle({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/list",
+        })
+        assert tools_response is not None
+        tool_names = {tool["name"] for tool in tools_response["result"]["tools"]}
+
+        self.assertIn("finance.now", tool_names)
+        self.assertIn("finance.transfer", tool_names)
+        self.assertIn("finance.build_context", tool_names)
+
+        resource_response = self.server.handle({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "resources/read",
+            "params": {"uri": "finance://usage-image"},
+        })
+        assert resource_response is not None
+        usage = resource_response["result"]["contents"][0]["text"]
+
+        self.assertIn("LLM -> finance.now()", usage)
+        self.assertIn("bank -> wallet は支出ではなく振替", usage)
+
+    def test_mcp_updates_and_reads_current_position(self) -> None:
+        self.assertTrue(self._tool("finance.set_bank", {"amount": 10_000})["ok"])
+        self.assertTrue(self._tool("finance.cash_set", {"amount": 1_000})["ok"])
+        before = self._tool("finance.now")["data"]["total_assets"]
+
+        transfer_result = self._tool(
+            "finance.transfer",
+            {
+                "from_account": "bank",
+                "to_account": "wallet",
+                "amount": 3_000,
+                "memo": "ATM",
+            },
+        )
+        snapshot = transfer_result["data"]["snapshot"]
+
+        self.assertEqual(snapshot["bank_total"], 7_000)
+        self.assertEqual(snapshot["wallet_total"], 4_000)
+        self.assertEqual(snapshot["total_assets"], before)
+
+    def test_mcp_returns_tool_error_for_insufficient_wallet_balance(self) -> None:
+        self.assertTrue(self._tool("finance.cash_set", {"amount": 500})["ok"])
+
+        response = self.server.handle({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "finance.cash_out",
+                "arguments": {"amount": 501, "memo": "too much"},
+            },
+        })
+        assert response is not None
+        result = response["result"]
+        payload = json.loads(result["content"][0]["text"])
+
+        self.assertTrue(result["isError"])
+        self.assertFalse(payload["ok"])
+        self.assertIn("財布残高が不足しています", payload["error"])
 
 
 if __name__ == "__main__":

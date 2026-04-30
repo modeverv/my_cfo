@@ -2,7 +2,7 @@
 
 このドキュメントは、LLM（Codex / GPT / Claude など）が本プロジェクトを安全かつ段階的に実装するためのガイドラインである。
 
-仕様は`dev/spec.md`に配置している。
+仕様は`dev/spec.md`、`dv/spec_mcp.md`に配置している。
 htmlでのuiデモは`dev/demo.html`に配置している
 
 ---

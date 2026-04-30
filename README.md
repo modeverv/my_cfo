@@ -31,6 +31,7 @@ llm:
 ./cfo --tui    # TUI モード（推奨）
 make run       # CLI ループ
 make tui       # TUI モード
+make mcp       # MCP stdio サーバー
 ```
 
 ---
@@ -67,6 +68,73 @@ make tui       # TUI モード
 | コマンド | 説明 |
 |---------|------|
 | `/ask <質問>` | 資産データをコンテキストに LM Studio へ問い合わせ |
+
+---
+
+## MCP
+
+MCPクライアントから使う場合は、stdioサーバーとして起動する。
+
+```bash
+python -m finance_mcp.server --db finance.sqlite3
+```
+
+MCPクライアント設定例:
+
+```json
+{
+  "mcpServers": {
+    "my-cfo": {
+      "command": "python3",
+      "args": [
+        "-m",
+        "finance_mcp.server",
+        "--db",
+        "/Users/seijiro/Sync/sync_work/me/my_cfo/finance.sqlite3"
+      ],
+      "cwd": "/Users/seijiro/Sync/sync_work/me/my_cfo"
+    }
+  }
+}
+```
+
+仮想環境のPythonを使う場合:
+
+```json
+{
+  "mcpServers": {
+    "my-cfo": {
+      "command": "/Users/seijiro/Sync/sync_work/me/my_cfo/.venv/bin/python",
+      "args": [
+        "-m",
+        "finance_mcp.server",
+        "--db",
+        "/Users/seijiro/Sync/sync_work/me/my_cfo/finance.sqlite3"
+      ],
+      "cwd": "/Users/seijiro/Sync/sync_work/me/my_cfo"
+    }
+  }
+}
+```
+
+公開ツール:
+
+| MCP tool | 説明 |
+|----------|------|
+| `finance.now` | 現在の資産状況をJSONで返す |
+| `finance.card_summary` | カード利用の月次集計 |
+| `finance.wallet_summary` | 財布の月次支出集計 |
+| `finance.recent_transfers` | 最近の振替一覧 |
+| `finance.set_bank` | 銀行残高を更新 |
+| `finance.set_securities` | 証券評価額を更新 |
+| `finance.cash_set` | 財布残高を実測補正 |
+| `finance.cash_in` | 財布へ入金 |
+| `finance.cash_out` | 財布から支出 |
+| `finance.transfer` | 振替を記録 |
+| `finance.import_card` | クレカCSVを取り込み |
+| `finance.build_context` | `/ask` 用の集計済みコンテキストを生成 |
+
+MCP resource として `finance://usage-image` も公開している。LLMから見た呼び出し例、総資産の定義、振替を支出扱いしない注意点を埋め込んである。
 
 ---
 

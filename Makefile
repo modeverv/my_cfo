@@ -2,7 +2,7 @@ PYTHON ?= python3
 DB ?= finance.sqlite3
 QUESTION ?= 今月ってカード使いすぎ？
 
-.PHONY: help install init run tui now set-bank set-securities cash-set ask compile test smoke clean-test-db
+.PHONY: help install init run tui mcp now set-bank set-securities cash-set ask compile test smoke clean-test-db
 
 help:
 	@printf '%s\n' 'Targets:'
@@ -10,6 +10,7 @@ help:
 	@printf '%s\n' '  make install                      Install dependencies'
 	@printf '%s\n' '  make run                          Start CLI loop'
 	@printf '%s\n' '  make tui                          Start TUI mode'
+	@printf '%s\n' '  make mcp                          Start MCP stdio server'
 	@printf '%s\n' '  make now                          Show current assets'
 	@printf '%s\n' '  make set-bank AMOUNT=3200000       Set bank balance'
 	@printf '%s\n' '  make set-securities AMOUNT=58800000 Set securities total'
@@ -31,6 +32,9 @@ run:
 tui:
 	$(PYTHON) main.py --db $(DB) --tui
 
+mcp:
+	$(PYTHON) -m finance_mcp.server --db $(DB)
+
 now:
 	$(PYTHON) main.py --db $(DB) /now
 
@@ -50,7 +54,7 @@ ask:
 	$(PYTHON) main.py --db $(DB) /ask "$(QUESTION)"
 
 compile:
-	$(PYTHON) -m compileall main.py finance_core
+	$(PYTHON) -m compileall main.py finance_core finance_mcp
 
 test:
 	$(PYTHON) -m unittest discover -s tests
