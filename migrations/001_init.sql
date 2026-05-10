@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS asset_snapshots (
   as_of_date TEXT NOT NULL,
   bank_total INTEGER NOT NULL DEFAULT 0,
   securities_total INTEGER NOT NULL DEFAULT 0,
+  crypto_total INTEGER NOT NULL DEFAULT 0,
   wallet_total INTEGER NOT NULL DEFAULT 0,
   credit_card_unbilled INTEGER NOT NULL DEFAULT 0,
   total_assets INTEGER NOT NULL DEFAULT 0,

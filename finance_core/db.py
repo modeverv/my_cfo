@@ -21,6 +21,7 @@ def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> None:
     with connect(db_path) as conn:
         conn.executescript(migration_sql)
         _ensure_wallet_transaction_columns(conn)
+        _ensure_asset_snapshot_columns(conn)
 
 
 def _ensure_wallet_transaction_columns(conn: sqlite3.Connection) -> None:
@@ -30,3 +31,12 @@ def _ensure_wallet_transaction_columns(conn: sqlite3.Connection) -> None:
     }
     if "balance_after" not in columns:
         conn.execute("ALTER TABLE wallet_transactions ADD COLUMN balance_after INTEGER")
+
+
+def _ensure_asset_snapshot_columns(conn: sqlite3.Connection) -> None:
+    columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(asset_snapshots)").fetchall()
+    }
+    if "crypto_total" not in columns:
+        conn.execute("ALTER TABLE asset_snapshots ADD COLUMN crypto_total INTEGER NOT NULL DEFAULT 0")

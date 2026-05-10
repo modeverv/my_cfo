@@ -17,6 +17,7 @@ from finance_core.services.manual_snapshots import (
     cash_add,
     cash_out,
     set_bank_total,
+    set_crypto_total,
     set_securities_total,
     set_wallet_total,
 )
@@ -58,6 +59,11 @@ def cmd_set_bank(conn: sqlite3.Connection, parts: list[str]) -> str:
 def cmd_set_securities(conn: sqlite3.Connection, parts: list[str]) -> str:
     require_args(parts, 2, "/set-securities <amount>")
     return "証券評価額を更新しました\n" + format_snapshot(set_securities_total(conn, parse_amount(parts[1])))
+
+
+def cmd_set_crypto(conn: sqlite3.Connection, parts: list[str]) -> str:
+    require_args(parts, 2, "/set-crypto <amount>")
+    return "仮想通貨評価額を更新しました\n" + format_snapshot(set_crypto_total(conn, parse_amount(parts[1])))
 
 
 def cmd_cash_set(conn: sqlite3.Connection, parts: list[str]) -> str:
@@ -165,6 +171,7 @@ def cmd_help(conn: sqlite3.Connection, parts: list[str]) -> str:
         "  /now                       現在の資産状況\n"
         "  /set-bank <amount>         銀行残高を更新\n"
         "  /set-securities <amount>   証券評価額を更新\n"
+        "  /set-crypto <amount>       仮想通貨評価額を更新\n"
         "  /cash-set <amount>         財布残高を補正\n"
         "  /cash-in <amount> <memo>   財布に入金\n"
         "  /cash-out <amount> <memo>  財布から支出\n"
@@ -185,6 +192,7 @@ _COMMANDS: dict[str, Callable[[sqlite3.Connection, list[str]], str]] = {
     "/now":            cmd_now,
     "/set-bank":       cmd_set_bank,
     "/set-securities": cmd_set_securities,
+    "/set-crypto":     cmd_set_crypto,
     "/cash-set":       cmd_cash_set,
     "/cash-in":        cmd_cash_in,
     "/cash-out":       cmd_cash_out,

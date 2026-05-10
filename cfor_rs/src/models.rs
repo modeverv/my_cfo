@@ -6,6 +6,7 @@ pub struct Snapshot {
     pub as_of_date: String,
     pub bank_total: i64,
     pub securities_total: i64,
+    pub crypto_total: i64,
     pub wallet_total: i64,
     pub credit_card_unbilled: i64,
     pub total_assets: i64,
@@ -20,6 +21,7 @@ impl Default for Snapshot {
             as_of_date: today,
             bank_total: 0,
             securities_total: 0,
+            crypto_total: 0,
             wallet_total: 0,
             credit_card_unbilled: 0,
             total_assets: 0,
@@ -30,8 +32,11 @@ impl Default for Snapshot {
 
 impl Snapshot {
     pub fn calculate_total(&mut self) {
-        self.total_assets =
-            self.bank_total + self.securities_total + self.wallet_total - self.credit_card_unbilled;
+        self.total_assets = self.bank_total
+            + self.securities_total
+            + self.crypto_total
+            + self.wallet_total
+            - self.credit_card_unbilled;
     }
 }
 

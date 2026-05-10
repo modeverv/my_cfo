@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS asset_snapshots (
   as_of_date TEXT NOT NULL,
   bank_total INTEGER NOT NULL DEFAULT 0,
   securities_total INTEGER NOT NULL DEFAULT 0,
+  crypto_total INTEGER NOT NULL DEFAULT 0,
   wallet_total INTEGER NOT NULL DEFAULT 0,
   credit_card_unbilled INTEGER NOT NULL DEFAULT 0,
   total_assets INTEGER NOT NULL DEFAULT 0,
@@ -88,6 +89,7 @@ pub fn init_db(db_path: &Path) -> Result<()> {
     let conn = connect(db_path)?;
     conn.execute_batch(SCHEMA_SQL)?;
     ensure_wallet_columns(&conn)?;
+    ensure_asset_snapshot_columns(&conn)?;
     Ok(())
 }
 
@@ -99,6 +101,18 @@ fn ensure_wallet_columns(conn: &Connection) -> Result<()> {
         .collect();
     if !columns.iter().any(|c| c == "balance_after") {
         conn.execute_batch("ALTER TABLE wallet_transactions ADD COLUMN balance_after INTEGER;")?;
+    }
+    Ok(())
+}
+
+fn ensure_asset_snapshot_columns(conn: &Connection) -> Result<()> {
+    let mut stmt = conn.prepare("PRAGMA table_info(asset_snapshots)")?;
+    let columns: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(|r| r.ok())
+        .collect();
+    if !columns.iter().any(|c| c == "crypto_total") {
+        conn.execute_batch("ALTER TABLE asset_snapshots ADD COLUMN crypto_total INTEGER NOT NULL DEFAULT 0;")?;
     }
     Ok(())
 }

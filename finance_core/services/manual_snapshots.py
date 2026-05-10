@@ -14,6 +14,10 @@ def set_securities_total(conn: sqlite3.Connection, amount: int) -> dict[str, Any
     return insert_snapshot(conn, securities_total=amount, memo="set-securities")
 
 
+def set_crypto_total(conn: sqlite3.Connection, amount: int) -> dict[str, Any]:
+    return insert_snapshot(conn, crypto_total=amount, memo="set-crypto")
+
+
 def set_wallet_total(conn: sqlite3.Connection, amount: int) -> dict[str, Any]:
     latest = get_latest_snapshot(conn)
     description = f"cash-set: {latest['wallet_total']:,}円 -> {amount:,}円"

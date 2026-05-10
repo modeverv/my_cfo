@@ -38,6 +38,7 @@ def format_current_position(position: dict[str, Any]) -> str:
         row("総資産:",      position["total_assets"]),
         row("銀行残高:",     position["bank_total"]),
         row("証券評価額:",   position["securities_total"]),
+        row("仮想通貨評価額:", position["crypto_total"]),
         row("財布残高:",     position["wallet_total"]),
         row("カード未払い合計:", -position["credit_card_unbilled"]),
     ]

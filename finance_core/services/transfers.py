@@ -10,11 +10,13 @@ ACCOUNT_ALIASES: dict[str, str] = {
     "bank": "bank",
     "wallet": "wallet",
     "securities": "securities",
+    "crypto": "crypto",
     "card": "card",
     # フルキーも受け付ける
     "bank_main": "bank",
     "wallet_main": "wallet",
     "sbi_main": "securities",
+    "bitflyer": "crypto",
     "card_main": "card",
 }
 
@@ -23,7 +25,7 @@ def resolve_account(key: str) -> str:
     normalized = ACCOUNT_ALIASES.get(key.lower())
     if normalized is None:
         raise ValueError(
-            f"不明な口座キー: {key}  (使用可能: bank, wallet, securities, card)"
+            f"不明な口座キー: {key}  (使用可能: bank, wallet, securities, crypto, card)"
         )
     return normalized
 
@@ -65,6 +67,16 @@ def transfer(
     elif from_account == "securities" and to_account == "bank":
         _ensure_sufficient_balance(latest["securities_total"], amount, "証券評価額")
         snapshot_kwargs["securities_total"] = latest["securities_total"] - amount
+        snapshot_kwargs["bank_total"] = latest["bank_total"] + amount
+
+    elif from_account == "bank" and to_account == "crypto":
+        _ensure_sufficient_balance(latest["bank_total"], amount, "銀行残高")
+        snapshot_kwargs["bank_total"] = latest["bank_total"] - amount
+        snapshot_kwargs["crypto_total"] = latest["crypto_total"] + amount
+
+    elif from_account == "crypto" and to_account == "bank":
+        _ensure_sufficient_balance(latest["crypto_total"], amount, "仮想通貨評価額")
+        snapshot_kwargs["crypto_total"] = latest["crypto_total"] - amount
         snapshot_kwargs["bank_total"] = latest["bank_total"] + amount
 
     else:

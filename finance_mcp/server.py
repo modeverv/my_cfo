@@ -23,6 +23,7 @@ from finance_core.services.manual_snapshots import (
     cash_add as core_cash_add,
     cash_out as core_cash_out,
     set_bank_total,
+    set_crypto_total,
     set_securities_total,
     set_wallet_total,
 )
@@ -53,6 +54,7 @@ LLM -> finance.recent_transfers(limit=10)
 ```text
 LLM -> finance.set_bank(amount=3200000)
 LLM -> finance.set_securities(amount=58800000)
+LLM -> finance.set_crypto(amount=150000)
 LLM -> finance.cash_set(amount=42000)
 LLM -> finance.cash_in(amount=5000, memo="refund")
 LLM -> finance.cash_out(amount=1200, memo="lunch")
@@ -68,7 +70,7 @@ LLM -> 返された集計済みコンテキストだけを根拠に回答
 
 ## 重要ルール
 
-- 総資産 = 銀行 + 証券 + 財布 - カード利用
+- 総資産 = 銀行 + 証券 + 仮想通貨 + 財布 - カード利用
 - bank -> wallet は支出ではなく振替
 - cash_set は実測補正であり現金支出ではない
 - /ask相当の相談では集計済みデータだけを使う
@@ -149,6 +151,10 @@ def finance_set_securities(conn: sqlite3.Connection, args: JsonDict) -> JsonDict
     return _ok({"snapshot": set_securities_total(conn, _validate_amount(args))})
 
 
+def finance_set_crypto(conn: sqlite3.Connection, args: JsonDict) -> JsonDict:
+    return _ok({"snapshot": set_crypto_total(conn, _validate_amount(args))})
+
+
 def finance_cash_set(conn: sqlite3.Connection, args: JsonDict) -> JsonDict:
     return _ok({"snapshot": set_wallet_total(conn, _validate_amount(args))})
 
@@ -214,6 +220,7 @@ TOOLS: dict[str, ToolFunc] = {
     "finance.recent_transfers": finance_recent_transfers,
     "finance.set_bank": finance_set_bank,
     "finance.set_securities": finance_set_securities,
+    "finance.set_crypto": finance_set_crypto,
     "finance.cash_set": finance_cash_set,
     "finance.cash_in": finance_cash_in,
     "finance.cash_out": finance_cash_out,
@@ -235,7 +242,7 @@ def _schema(properties: JsonDict | None = None, required: list[str] | None = Non
 TOOL_DEFINITIONS: list[JsonDict] = [
     {
         "name": "finance.now",
-        "description": "現在の資産状況を返す。総資産は 銀行 + 証券 + 財布 - カード利用。",
+        "description": "現在の資産状況を返す。総資産は 銀行 + 証券 + 仮想通貨 + 財布 - カード利用。",
         "inputSchema": _schema(),
     },
     {
@@ -264,6 +271,11 @@ TOOL_DEFINITIONS: list[JsonDict] = [
         "inputSchema": _schema({"amount": {"type": "integer", "minimum": 0}}, ["amount"]),
     },
     {
+        "name": "finance.set_crypto",
+        "description": "仮想通貨評価額を手入力で更新する。",
+        "inputSchema": _schema({"amount": {"type": "integer", "minimum": 0}}, ["amount"]),
+    },
+    {
         "name": "finance.cash_set",
         "description": "財布残高を実測値で補正する。これは支出ではない。",
         "inputSchema": _schema({"amount": {"type": "integer", "minimum": 0}}, ["amount"]),
@@ -289,8 +301,8 @@ TOOL_DEFINITIONS: list[JsonDict] = [
         "description": "振替を記録する。bank -> wallet は支出ではなく、財布履歴とは分けてtransfersに記録する。",
         "inputSchema": _schema(
             {
-                "from_account": {"type": "string", "enum": ["bank", "wallet", "securities", "card"]},
-                "to_account": {"type": "string", "enum": ["bank", "wallet", "securities", "card"]},
+                "from_account": {"type": "string", "enum": ["bank", "wallet", "securities", "crypto", "card"]},
+                "to_account": {"type": "string", "enum": ["bank", "wallet", "securities", "crypto", "card"]},
                 "amount": {"type": "integer", "minimum": 1},
                 "memo": {"type": "string"},
             },

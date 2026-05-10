@@ -25,6 +25,17 @@ pub fn set_securities_total(conn: &Connection, amount: i64) -> Result<Snapshot> 
     )
 }
 
+pub fn set_crypto_total(conn: &Connection, amount: i64) -> Result<Snapshot> {
+    insert_snapshot(
+        conn,
+        SnapshotBuilder {
+            crypto_total: Some(amount),
+            memo: Some("set-crypto".to_string()),
+            ..Default::default()
+        },
+    )
+}
+
 pub fn set_wallet_total(conn: &Connection, amount: i64) -> Result<Snapshot> {
     let latest = get_latest_snapshot(conn)?;
     let description = format!(

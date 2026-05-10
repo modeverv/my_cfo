@@ -4,7 +4,7 @@ use rusqlite::Connection;
 
 pub fn get_latest_snapshot(conn: &Connection) -> Result<Snapshot> {
     let result = conn.query_row(
-        "SELECT id, as_of_date, bank_total, securities_total, wallet_total,
+        "SELECT id, as_of_date, bank_total, securities_total, crypto_total, wallet_total,
                 credit_card_unbilled, total_assets, memo
          FROM asset_snapshots
          ORDER BY as_of_date DESC, id DESC
@@ -16,10 +16,11 @@ pub fn get_latest_snapshot(conn: &Connection) -> Result<Snapshot> {
                 as_of_date: row.get(1)?,
                 bank_total: row.get(2)?,
                 securities_total: row.get(3)?,
-                wallet_total: row.get(4)?,
-                credit_card_unbilled: row.get(5)?,
-                total_assets: row.get(6)?,
-                memo: row.get(7)?,
+                crypto_total: row.get(4)?,
+                wallet_total: row.get(5)?,
+                credit_card_unbilled: row.get(6)?,
+                total_assets: row.get(7)?,
+                memo: row.get(8)?,
             })
         },
     );
@@ -33,6 +34,7 @@ pub fn get_latest_snapshot(conn: &Connection) -> Result<Snapshot> {
 pub struct SnapshotBuilder {
     pub bank_total: Option<i64>,
     pub securities_total: Option<i64>,
+    pub crypto_total: Option<i64>,
     pub wallet_total: Option<i64>,
     pub credit_card_unbilled: Option<i64>,
     pub memo: Option<String>,
@@ -44,6 +46,7 @@ impl Default for SnapshotBuilder {
         SnapshotBuilder {
             bank_total: None,
             securities_total: None,
+            crypto_total: None,
             wallet_total: None,
             credit_card_unbilled: None,
             memo: None,
@@ -61,6 +64,9 @@ pub fn insert_snapshot(conn: &Connection, builder: SnapshotBuilder) -> Result<Sn
     if let Some(v) = builder.securities_total {
         latest.securities_total = v;
     }
+    if let Some(v) = builder.crypto_total {
+        latest.crypto_total = v;
+    }
     if let Some(v) = builder.wallet_total {
         latest.wallet_total = v;
     }
@@ -76,13 +82,14 @@ pub fn insert_snapshot(conn: &Connection, builder: SnapshotBuilder) -> Result<Sn
 
     conn.execute(
         "INSERT INTO asset_snapshots
-         (as_of_date, bank_total, securities_total, wallet_total,
+         (as_of_date, bank_total, securities_total, crypto_total, wallet_total,
           credit_card_unbilled, total_assets, memo)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         rusqlite::params![
             latest.as_of_date,
             latest.bank_total,
             latest.securities_total,
+            latest.crypto_total,
             latest.wallet_total,
             latest.credit_card_unbilled,
             latest.total_assets,

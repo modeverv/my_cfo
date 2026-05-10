@@ -5,7 +5,7 @@ use crate::services::ask_context::{
     active_card_month, build_ask_prompt, build_finance_context, refresh_card_unbilled,
 };
 use crate::services::manual_snapshots::{
-    cash_add, cash_out, set_bank_total, set_securities_total, set_wallet_total,
+    cash_add, cash_out, set_bank_total, set_crypto_total, set_securities_total, set_wallet_total,
 };
 use crate::services::now::{show_card, show_now, show_wallet};
 use crate::services::snapshots::format_snapshot;
@@ -58,6 +58,18 @@ pub fn handle_command(conn: &Connection, command_line: &str) -> Result<String> {
             let snap = set_securities_total(conn, amount)?;
             Ok(format!(
                 "証券評価額を更新しました\n{}",
+                format_snapshot(&snap)
+            ))
+        }
+
+        "/set-crypto" => {
+            if parts.len() != 2 {
+                return Err(FinError::invalid("使い方: /set-crypto <amount>"));
+            }
+            let amount = parse_amount(&parts[1], true)?;
+            let snap = set_crypto_total(conn, amount)?;
+            Ok(format!(
+                "仮想通貨評価額を更新しました\n{}",
                 format_snapshot(&snap)
             ))
         }
@@ -218,6 +230,7 @@ pub fn handle_command(conn: &Connection, command_line: &str) -> Result<String> {
                   /now                       現在の資産状況\n\
                   /set-bank <amount>         銀行残高を更新\n\
                   /set-securities <amount>   証券評価額を更新\n\
+                  /set-crypto <amount>       仮想通貨評価額を更新\n\
                   /cash-set <amount>         財布残高を補正\n\
                   /cash-in <amount> <memo>   財布に入金\n\
                   /cash-out <amount> <memo>  財布から支出\n\

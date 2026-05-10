@@ -41,22 +41,25 @@ class SnapshotTests(DatabaseTestCase):
             calculate_total(
                 bank_total=3_200_000,
                 securities_total=58_800_000,
+                crypto_total=150_000,
                 wallet_total=42_000,
                 credit_card_unbilled=230_000,
             ),
-            61_812_000,
+            61_962_000,
         )
 
     def test_set_commands_update_latest_snapshot(self) -> None:
         handle_command(self.conn, "/set-bank 3200000")
         handle_command(self.conn, "/set-securities 58800000")
+        handle_command(self.conn, "/set-crypto 150000")
         handle_command(self.conn, "/cash-set 42000")
 
         latest = get_latest_snapshot(self.conn)
         self.assertEqual(latest["bank_total"], 3_200_000)
         self.assertEqual(latest["securities_total"], 58_800_000)
+        self.assertEqual(latest["crypto_total"], 150_000)
         self.assertEqual(latest["wallet_total"], 42_000)
-        self.assertEqual(latest["total_assets"], 62_042_000)
+        self.assertEqual(latest["total_assets"], 62_192_000)
 
 
 class WalletAndTransferTests(DatabaseTestCase):
@@ -146,6 +149,18 @@ class WalletAndTransferTests(DatabaseTestCase):
         self.assertIn("総資産は変わりません", output)
         self.assertEqual(after["bank_total"], 7_000)
         self.assertEqual(after["wallet_total"], 4_000)
+        self.assertEqual(after["total_assets"], before)
+
+    def test_crypto_transfer_keeps_total_assets_unchanged(self) -> None:
+        handle_command(self.conn, "/set-bank 10000")
+        handle_command(self.conn, "/set-crypto 5000")
+        before = get_latest_snapshot(self.conn)["total_assets"]
+
+        handle_command(self.conn, "/transfer bank crypto 2000 bitFlyer入金")
+        after = get_latest_snapshot(self.conn)
+
+        self.assertEqual(after["bank_total"], 8_000)
+        self.assertEqual(after["crypto_total"], 7_000)
         self.assertEqual(after["total_assets"], before)
 
     def test_delta_commands_reject_zero_amount(self) -> None:

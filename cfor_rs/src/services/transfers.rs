@@ -8,9 +8,10 @@ fn resolve_account(key: &str) -> Result<&'static str> {
         "bank" | "bank_main" => Ok("bank"),
         "wallet" | "wallet_main" => Ok("wallet"),
         "securities" | "sbi_main" => Ok("securities"),
+        "crypto" | "bitflyer" => Ok("crypto"),
         "card" | "card_main" => Ok("card"),
         _ => Err(FinError::invalid(format!(
-            "不明な口座キー: {}  (使用可能: bank, wallet, securities, card)",
+            "不明な口座キー: {}  (使用可能: bank, wallet, securities, crypto, card)",
             key
         ))),
     }
@@ -71,6 +72,16 @@ pub fn transfer(
         ("securities", "bank") => {
             ensure_balance(latest.securities_total, amount, "証券評価額")?;
             builder.securities_total = Some(latest.securities_total - amount);
+            builder.bank_total = Some(latest.bank_total + amount);
+        }
+        ("bank", "crypto") => {
+            ensure_balance(latest.bank_total, amount, "銀行残高")?;
+            builder.bank_total = Some(latest.bank_total - amount);
+            builder.crypto_total = Some(latest.crypto_total + amount);
+        }
+        ("crypto", "bank") => {
+            ensure_balance(latest.crypto_total, amount, "仮想通貨評価額")?;
+            builder.crypto_total = Some(latest.crypto_total - amount);
             builder.bank_total = Some(latest.bank_total + amount);
         }
         _ => {
