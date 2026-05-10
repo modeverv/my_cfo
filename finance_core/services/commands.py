@@ -10,7 +10,7 @@ from finance_core.llm import chat_completion
 from finance_core.services.ask_context import (
     build_ask_prompt,
     build_finance_context,
-    card_billing_month,
+    current_month,
     refresh_card_unbilled,
 )
 from finance_core.services.manual_snapshots import (
@@ -98,7 +98,7 @@ def cmd_import_card(conn: sqlite3.Connection, parts: list[str]) -> str:
         }
     else:
         result = import_directory(conn, path)
-    snapshot = refresh_card_unbilled(conn, card_billing_month())
+    refresh_card_unbilled(conn, current_month())
     lines = [
         f"{result['files']}ファイルを走査: "
         f"{result['imported']}件取り込み / {result['skipped']}件スキップ(重複)"
@@ -107,7 +107,7 @@ def cmd_import_card(conn: sqlite3.Connection, parts: list[str]) -> str:
         lines.append(f"  WARN: {result['skipped_rows']}行をスキップ")
     for err in result["errors"]:
         lines.append(f"  ERROR: {err}")
-    lines.append(format_snapshot(snapshot))
+    lines.append(show_now(conn))
     return "\n".join(lines)
 
 
@@ -117,7 +117,7 @@ def cmd_import(conn: sqlite3.Connection, parts: list[str]) -> str:
 
 def cmd_card(conn: sqlite3.Connection, parts: list[str]) -> str:
     arg = parts[1] if len(parts) > 1 else "this_month"
-    month = card_billing_month() if arg == "this_month" else arg
+    month = current_month() if arg == "this_month" else arg
     return show_card(conn, month)
 
 
@@ -173,7 +173,7 @@ def cmd_help(conn: sqlite3.Connection, parts: list[str]) -> str:
         "  /transfer <from> <to> <amount> [memo]  振替\n"
         "  /import-card [dir]         カードCSVを一括取り込み\n"
         "  /import [dir]              /import-card の別名\n"
-        "  /card [this_month|YYYY-MM] カード利用集計（this_monthは支払月ベース）\n"
+        "  /card [this_month|YYYY-MM] カード集計（支払月/利用月を2段表示）\n"
         "  /ask <質問>                LLMに分析を依頼\n"
         "  /help                      このヘルプを表示\n"
     )

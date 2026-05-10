@@ -179,11 +179,24 @@ class CardSummaryTests(DatabaseTestCase):
         self.assertEqual(summary["by_merchant"][0], {"merchant": "Amazon", "total": 1_200})
 
         snapshot = refresh_card_unbilled(self.conn, "2026-05")
-        self.assertEqual(snapshot["credit_card_unbilled"], 2_000)
-        self.assertEqual(snapshot["total_assets"], -2_000)
+        self.assertEqual(snapshot["credit_card_unbilled"], 4_000)
+        self.assertEqual(snapshot["total_assets"], -4_000)
 
     def test_card_billing_month_rolls_over_year(self) -> None:
         self.assertEqual(card_billing_month(date(2026, 12, 15)), "2027-01")
+
+    def test_card_this_month_uses_current_payment_month(self) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO card_transactions (used_on, merchant, amount, payment_month)
+            VALUES (?, ?, ?, ?)
+            """,
+            ("2026-04-01", "Amazon", 1_200, current_month()),
+        )
+
+        output = handle_command(self.conn, "/card this_month")
+
+        self.assertIn("1件  計 1,200円", output)
 
 
 class AskContextTests(DatabaseTestCase):
@@ -197,7 +210,7 @@ class AskContextTests(DatabaseTestCase):
             INSERT INTO card_transactions (used_on, merchant, amount, payment_month)
             VALUES (?, ?, ?, ?)
             """,
-            ("2026-04-01", "Amazon", 1_200, card_billing_month()),
+            (f"{current_month()}-01", "Amazon", 1_200, current_month()),
         )
 
         context = build_finance_context(self.conn, "今月どう？")
@@ -358,6 +371,23 @@ class CreditCardCsvImportTests(DatabaseTestCase):
         self.assertEqual(result["imported"], 1)
         self.assertEqual(result["skipped_rows"], 1)
         self.assertIn("1行をスキップ", result["errors"][0])
+
+    def test_import_command_refreshes_current_payment_month_card_usage(self) -> None:
+        with TemporaryDirectory() as tmp:
+            inbox = Path(tmp)
+            csv_path = inbox / f"{current_month().replace('-', '')}.csv"
+            csv_path.write_text(
+                "利用日,利用店名,利用金額,支払回数計,今回回数,今回支払額,備考\n"
+                "2026/4/1,ＡＭＡＺＯＮ,1200,1,1,1200,\n",
+                encoding="cp932",
+            )
+
+            output = handle_command(self.conn, f"/import {csv_path}")
+
+        latest = get_latest_snapshot(self.conn)
+        self.assertIn("1件取り込み", output)
+        self.assertEqual(latest["credit_card_unbilled"], 1_200)
+        self.assertEqual(latest["total_assets"], -1_200)
 
 
 class McpServerTests(DatabaseTestCase):

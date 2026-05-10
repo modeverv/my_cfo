@@ -4,29 +4,48 @@ import sqlite3
 from typing import Any
 
 from finance_core.display import fit
-from finance_core.services.ask_context import current_month, get_card_month_summary
+from finance_core.services.ask_context import (
+    current_month,
+    get_card_payment_month_summary,
+    get_card_usage_month_summary,
+)
 from finance_core.services.snapshots import get_latest_snapshot
 
-_LABEL_COLS   = 13  # ラベル列の表示幅（最長「証券評価額:」= 11 + 余白2）
+_LABEL_COLS   = 18  # ラベル列の表示幅（内訳行を含めたラベル用）
 _AMOUNT_COLS  = 13  # 金額列の表示幅（右揃え）
 _MERCHANT_COLS = 30 # 加盟店名列の表示幅
 
 
 def get_current_position(conn: sqlite3.Connection) -> dict[str, Any]:
-    return get_latest_snapshot(conn)
+    position = get_latest_snapshot(conn)
+    month = current_month()
+    next_payment = get_card_payment_month_summary(conn, month)
+    current_usage = get_card_usage_month_summary(conn, month)
+    return {
+        **position,
+        "card_next_payment_month": month,
+        "card_next_payment_total": next_payment["total"],
+        "card_current_usage_month": month,
+        "card_current_usage_total": current_usage["total"],
+    }
 
 
 def format_current_position(position: dict[str, Any]) -> str:
     def row(label: str, amount: int) -> str:
         return f"{fit(label, _LABEL_COLS)}{amount:>{_AMOUNT_COLS},}円"
 
-    return "\n".join([
+    lines = [
         row("総資産:",      position["total_assets"]),
         row("銀行残高:",     position["bank_total"]),
         row("証券評価額:",   position["securities_total"]),
         row("財布残高:",     position["wallet_total"]),
-        row("カード利用:",   -position["credit_card_unbilled"]),
-    ])
+        row("カード未払い合計:", -position["credit_card_unbilled"]),
+    ]
+    if "card_next_payment_total" in position:
+        lines.append(row("  次回引落予定:", -position["card_next_payment_total"]))
+    if "card_current_usage_total" in position:
+        lines.append(row("  今月利用分:", -position["card_current_usage_total"]))
+    return "\n".join(lines)
 
 
 def show_now(conn: sqlite3.Connection) -> str:
@@ -65,18 +84,24 @@ def show_wallet(conn: sqlite3.Connection, limit: int = 10) -> str:
 
 def show_card(conn: sqlite3.Connection, month: str | None = None) -> str:
     target = month or current_month()
-    summary = get_card_month_summary(conn, target)
+    payment_summary = get_card_payment_month_summary(conn, target)
+    usage_summary = get_card_usage_month_summary(conn, target)
 
     lines = [
-        f"カード利用 支払月:{target} — {summary['count']}件  計 {summary['total']:,}円",
+        f"次回引落予定 支払月:{target} — {payment_summary['count']}件  計 {payment_summary['total']:,}円",
+        f"今月カード利用 利用月:{target} — {usage_summary['count']}件  計 {usage_summary['total']:,}円",
         "",
-        "加盟店別TOP10:",
+        "次回引落予定 加盟店別TOP10:",
     ]
-    for r in summary["by_merchant"]:
+    for r in payment_summary["by_merchant"]:
         lines.append(f"  {fit(str(r['merchant']), _MERCHANT_COLS)}  {r['total']:>10,}円")
 
-    lines += ["", "高額TOP10:"]
-    for r in summary["large_transactions"]:
+    lines += ["", "次回引落予定 高額TOP10:"]
+    for r in payment_summary["large_transactions"]:
+        lines.append(f"  {r['used_on']}  {fit(str(r['merchant']), _MERCHANT_COLS)}  {r['amount']:>10,}円")
+
+    lines += ["", "今月利用分 高額TOP10:"]
+    for r in usage_summary["large_transactions"]:
         lines.append(f"  {r['used_on']}  {fit(str(r['merchant']), _MERCHANT_COLS)}  {r['amount']:>10,}円")
 
     return "\n".join(lines)

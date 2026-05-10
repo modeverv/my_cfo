@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import threading
+import re
 from pathlib import Path
 from typing import Any
 
 from finance_core.display import fit as _fit
 
+from rich.markup import escape
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -13,14 +15,86 @@ from textual.widgets import Footer, Input, RichLog, Static
 
 from finance_core.db import DEFAULT_DB_PATH, connect, init_db
 from finance_core.services.ask_context import (
-    card_billing_month,
     current_month,
-    get_card_month_summary,
+    get_card_payment_month_summary,
+    get_card_usage_month_summary,
     get_recent_transfers,
     get_wallet_month_summary,
 )
 from finance_core.services.commands import run_command
 from finance_core.services.snapshots import get_latest_snapshot
+
+
+COMMAND_COLOR = "#ff0066"
+BASE_COLOR = "#00e040"
+AMOUNT_COLOR = "#eeeeee"
+
+
+def _command_markup(text: str) -> str:
+    return f"[{COMMAND_COLOR}]{escape(text)}[/{COMMAND_COLOR}]"
+
+
+def _base_markup(text: str) -> str:
+    return f"[{BASE_COLOR}]{escape(text)}[/{BASE_COLOR}]"
+
+
+def _amount_markup(text: str) -> str:
+    return f"[{AMOUNT_COLOR}]{escape(text)}[/{AMOUNT_COLOR}]"
+
+
+def _style_command_spec(spec: str) -> str:
+    """Style command names and argument placeholders in a help command spec."""
+    parts: list[str] = []
+    pos = 0
+    for match in re.finditer(r"/[A-Za-z0-9_-]+|<[^>\s]+>|\[[^\]\s]+(?:\|[^\]\s]+)?\]", spec):
+        parts.append(escape(spec[pos:match.start()]))
+        parts.append(_command_markup(match.group(0)))
+        pos = match.end()
+    parts.append(escape(spec[pos:]))
+    return "".join(parts)
+
+
+def _style_help_output(output: str) -> str:
+    lines: list[str] = []
+    for line in output.splitlines():
+        if line.startswith("  /"):
+            leading = line[: len(line) - len(line.lstrip())]
+            rest = line[len(leading):]
+            match = re.match(r"^(/[A-Za-z0-9_-]+(?:\s+(?:<[^>\s]+>|\[[^\]]+\]))*)(\s+)(.*)$", rest)
+            if match:
+                spec, gap, description = match.groups()
+                lines.append(
+                    escape(leading)
+                    + _style_command_spec(spec)
+                    + escape(gap)
+                    + _base_markup(description)
+                )
+            else:
+                lines.append(escape(leading) + _style_command_spec(rest))
+        else:
+            lines.append(_base_markup(line))
+    return "\n".join(lines)
+
+
+def _style_amount_lines(output: str) -> str:
+    lines: list[str] = []
+    for line in output.splitlines():
+        match = re.match(r"^(.*?)(-?[\d,]+)(円)$", line)
+        if match:
+            label, amount, yen = match.groups()
+            lines.append(_base_markup(label) + _amount_markup(amount) + _base_markup(yen))
+        else:
+            lines.append(_base_markup(line))
+    return "\n".join(lines)
+
+
+def _style_command_output(command_line: str, output: str) -> str:
+    command = command_line.split(maxsplit=1)[0] if command_line.strip() else ""
+    if command == "/help":
+        return _style_help_output(output)
+    if command in {"/now", "/set-bank", "/set-securities", "/cash-set", "/cash-in", "/cash-out", "/atm", "/transfer"}:
+        return _style_amount_lines(output)
+    return escape(output)
 
 
 # ── 画面描画 ──────────────────────────────────────────────
@@ -43,14 +117,21 @@ class StatusHeader(Static):
 class SidePane(RichLog):
     def update_side(
         self,
-        card_summary: dict[str, Any],
+        next_payment_summary: dict[str, Any],
+        current_usage_summary: dict[str, Any],
         wallet_summary: dict[str, Any],
         transfers: list[dict[str, Any]],
     ) -> None:
         self.clear()
 
-        self.write("[bold #00ff66]── 高額カード決済 TOP5 ──[/bold #00ff66]")
-        for t in card_summary["large_transactions"][:5]:
+        self.write("[bold #00ff66]── 次回引落予定 TOP5 ──[/bold #00ff66]")
+        for t in next_payment_summary["large_transactions"][:5]:
+            merchant = _fit(str(t["merchant"]), 18)
+            self.write(f"  [#007733]{t['used_on']}[/#007733]  {merchant}  [yellow]{int(t['amount']):>9,}円[/yellow]")
+
+        self.write("")
+        self.write("[bold #00ff66]── 今月カード利用 TOP5 ──[/bold #00ff66]")
+        for t in current_usage_summary["large_transactions"][:5]:
             merchant = _fit(str(t["merchant"]), 18)
             self.write(f"  [#007733]{t['used_on']}[/#007733]  {merchant}  [yellow]{int(t['amount']):>9,}円[/yellow]")
 
@@ -119,9 +200,9 @@ class FinanceApp(App):
 
     #input-bar {
         background: #020802;
-        height: 3;
+        height: 5;
         border-top: solid #006622;
-        padding: 0 1;
+        padding: 0 1 1 1;
     }
 
     Input {
@@ -163,8 +244,8 @@ class FinanceApp(App):
     def compose(self) -> ComposeResult:
         yield StatusHeader(id="status-header")
         with Horizontal():
-            yield RichLog(id="main-pane",  highlight=True, markup=True, wrap=True)
-            yield SidePane(id="side-pane", highlight=True, markup=True, wrap=True)
+            yield RichLog(id="main-pane",  highlight=False, markup=True, wrap=True)
+            yield SidePane(id="side-pane", highlight=False, markup=True, wrap=True)
         with Vertical(id="input-bar"):
             yield Input(placeholder="fin> コマンドを入力 (例: /now  /ask 今月は？)", id="cmd-input")
         yield Footer()
@@ -185,7 +266,7 @@ class FinanceApp(App):
             self.exit()
             return
         main_log = self.query_one(self.MAIN_PANE_SELECTOR, RichLog)
-        main_log.write(f"[bold #00ff66]fin>[/bold #00ff66] [#00cc44]{line}[/#00cc44]")
+        main_log.write(f"[bold #00ff66]fin>[/bold #00ff66] [#00cc44]{escape(line)}[/#00cc44]")
         if line.startswith("/ask"):
             self._dispatch_ask(line)
         else:
@@ -198,7 +279,7 @@ class FinanceApp(App):
         try:
             output = run_command(self.db_path, command_line)
             if output:
-                main_log.write(output)
+                main_log.write(_style_command_output(command_line, output))
         except Exception as exc:
             main_log.write(f"[red]ERROR: {exc}[/red]")
         self._refresh_all()
@@ -223,12 +304,19 @@ class FinanceApp(App):
     def _refresh_all(self) -> None:
         with connect(self.db_path) as conn:
             snap = get_latest_snapshot(conn)
-            card_summary    = get_card_month_summary(conn, card_billing_month())
+            month = current_month()
+            next_payment_summary = get_card_payment_month_summary(conn, month)
+            current_usage_summary = get_card_usage_month_summary(conn, month)
             wallet_summary  = get_wallet_month_summary(conn, current_month())
             transfers       = get_recent_transfers(conn, limit=5)
 
         self.query_one(self.STATUS_HEADER_SELECTOR, StatusHeader).update_stats(snap)
-        self.query_one(self.SIDE_PANE_SELECTOR, SidePane).update_side(card_summary, wallet_summary, transfers)
+        self.query_one(self.SIDE_PANE_SELECTOR, SidePane).update_side(
+            next_payment_summary,
+            current_usage_summary,
+            wallet_summary,
+            transfers,
+        )
 
     # ── キーバインド ─────────────────────────────────────
 

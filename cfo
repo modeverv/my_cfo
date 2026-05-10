@@ -1,6 +1,9 @@
 #!/bin/bash
 DIR="$(cd "$(dirname "$0")" && pwd)"
+DIR=/Users/seijiro/Sync/sync_work/me/my_cfo
 if [ "$#" -eq 0 ]; then
-  exec "$DIR/.venv/bin/python" "$DIR/main.py" --tui
+  #exec "$DIR/.venv/bin/python" "$DIR/main.py" --tui
+  exec python3 "$DIR/main.py" --tui
 fi
-exec "$DIR/.venv/bin/python" "$DIR/main.py" "$@"
+#exec "$DIR/.venv/bin/python" "$DIR/main.py" "$@"
+exec python3 "$DIR/main.py" "$@"
